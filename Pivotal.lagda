@@ -1,5 +1,6 @@
 \documentclass[]{sigplanconf}                    % onecolumn (standard format)
 
+\usepackage{alltt}
 \usepackage{graphicx}
 \usepackage{upgreek}
 \usepackage{amsmath}
@@ -76,6 +77,7 @@
 \newtheorem{princ}{Principle}
 
 %format Set = "\D{Set}"
+%format Set1 = "\D{Set_1}"
 
 \title{How to Keep Your Neighbours in Order}
 \authorinfo{Conor McBride}
@@ -133,6 +135,7 @@ more besides.
 %format tt = "\C{t\!t}"
 %format ff = "\C{f\!f}"
 %format forall = "\D{\forall}"
+%format o = "\F{\circ}"
 
 \begin{code}
 data Zero : Set where
@@ -163,6 +166,11 @@ infixr 5 _/_
 _*_ : Set -> Set -> Set
 S * T = Sg S \ _ -> T
 infixr 5 _*_
+
+_o_ : {A : Set}{B : A -> Set}{C : (a : A) -> B a -> Set}
+      (f : {a : A}(b : B a) -> C a b)(g : (a : A) -> B a) ->
+      (a : A) -> C a (g a)
+(f o g) x = f (g x)
 \end{code}
 
 
@@ -172,32 +180,35 @@ infixr 5 _*_
 
 We can extend any type with top and bottom elements as follows.
 
-%format (TB x) = x "\D{\!_\bot^\top}"
+%format <$  = "\!\!"
+%format $>D = "\D{\!_\bot^\top}"
+%format <$_$>D = "\_" $>D
 %format tb = "\C{\scriptscriptstyle{\#}}"
 %format top = "\C{\top}"
 %format bot = "\C{\bot}"
 
 \begin{code}
-data TB (P : Set) : Set where
-  top  :       (TB P)
-  tb   : P ->  (TB P)
-  bot  :       (TB P)
+data <$_$>D (P : Set) : Set where
+  top  :       <$ P $>D
+  tb   : P ->  <$ P $>D
+  bot  :       <$ P $>D
 \end{code}
 
 Of course, we shall need to extend the order, putting |top| at the
 top and |bot| at the bottom.
 
 %format REL = "\F{Rel}"
-%format TBR r = r "\F{\!_\bot^\top}"
+%format $>F = "\F{\!_\bot^\top}"
+%format <$_$>F = \_ $>F
 \begin{code}
 REL : Set -> Set1
 REL P = P -> P -> Set
 
-TBR : forall {P} -> REL P -> REL (TB P)
-TBR L x       top     = One
-TBR L (tb x)  (tb y)  = L x y
-TBR L bot     y       = One
-TBR L _       _       = Zero
+<$_$>F : forall {P} -> REL P -> REL <$ P $>D
+<$ L $>F x       top     = One
+<$ L $>F (tb x)  (tb y)  = L x y
+<$ L $>F bot     y       = One
+<$ L $>F _       _       = Zero
 \end{code}
 
 \textbf{Use |Two| here?}
@@ -220,6 +231,9 @@ rather than its \emph{decidability}.}
 %format _q*_ = "\_\!" q* "\!\_"
 %format (ElJJ) = "\F{\llbracket\_\rrbracket_{" JJ "}}}"
 %format (ElJJ (t)) = "\F{\llbracket}" t "\F{\rrbracket_{" JJ "}}"
+%format <! = "\F{\llbracket}"
+%format !>JJ = "\F{\rrbracket_{" JJ "}}"
+%format <!_!>JJ = <! "\_" !>JJ
 %format MuJJ = "\D{\upmu_{" JJ "}}"
 %format la = "\C{\langle}"
 %format ra = "\C{\rangle}"
@@ -233,15 +247,15 @@ data JJ : Set where
 infixr 4 _q+_
 infixr 5 _q*_
 
-ElJJ : JJ -> Set -> Set -> Set
-ElJJ qR        R P = R
-ElJJ qP        R P = P
-ElJJ q1        R P = One
-ElJJ (S q+ T)  R P = (ElJJ S) R P + (ElJJ T) R P
-ElJJ (S q* T)  R P = (ElJJ S) R P * (ElJJ T) R P
+<!_!>JJ : JJ -> Set -> Set -> Set
+<! qR !>JJ      R P = R
+<! qP !>JJ      R P = P
+<! q1 !>JJ      R P = One
+<! S q+ T !>JJ  R P = <! S !>JJ R P + <! T !>JJ R P
+<! S q* T !>JJ  R P = <! S !>JJ R P * <! T !>JJ R P
 
 data MuJJ (F : JJ)(P : Set) : Set where
-  la_ra : (ElJJ F) (MuJJ F P) P -> MuJJ F P
+  la_ra : <! F !>JJ (MuJJ F P) P -> MuJJ F P
 
 \end{code}
 
@@ -254,8 +268,8 @@ actual |P| and its |qR|s by |MuJJ F P|.
 \section{The Simple Orderable Universe}
 
 %format SO = "\D{SO}"
-%format ElSO = "\F{\llbracket\_\rrbracket_{" SO "}}}"
-%format (ElSO (t)) = "\F{\llbracket}" t "\F{\rrbracket_{" SO "}}"
+%format !>SO = "\F{\rrbracket_{" SO "}}"
+%format <!_!>SO = <! "\_" !>SO
 %format MuSO = "\F{\upmu_{" SO "}}"
 %format q^ = "\C{`\wedge}"
 %format _q^_ = "\_\!" q^ "\!\_"
@@ -271,7 +285,7 @@ We can require the presence of pivots between substructures by combining
 the parameter |qP| and pairing |q*| constructs of the PolyP universe into a
 single pivoting construct, |q^|, with two substructures and a pivot in between.
 We thus acquire the simple orderable universe, |SO|, a subset of
-|JJ| picked out as the image of a function, |ElSO|. Now, |P| stands also for
+|JJ| picked out as the image of a function, |<!_!>SO|. Now, |P| stands also for
 pivot!
 
 \begin{code}
@@ -280,14 +294,14 @@ data SO : Set where
   _q+_ _q^_  : SO -> SO -> SO
 infixr 5 _q^_
 
-ElSO : SO -> JJ
-ElSO qR        = qR
-ElSO q1        = q1
-ElSO (S q+ T)  = (ElSO S) q+ (ElSO T)
-ElSO (S q^ T)  = (ElSO S) q* qP q* (ElSO T)
+<!_!>SO : SO -> JJ
+<! qR !>SO      = qR
+<! q1 !>SO      = q1
+<! S q+ T !>SO  = <! S !>SO q+ <! T !>SO
+<! S q^ T !>SO  = <! S !>SO q* qP q* <! T !>SO
 
 MuSO : SO -> Set -> Set
-MuSO F P = MuJJ (ElSO F) P
+MuSO F P = MuJJ <! F !>SO P
 \end{code}
 
 Let us give |SO| codes for structures we often order and bound:
@@ -318,7 +332,7 @@ subnodes, allowing us to take the top node apart: we kick off with
 \begin{code}
 treeSO : forall {P F} -> MuSO F P -> MuSO qTreeSO P
 treeSO {P}{F} la f ra = go F f where
-  go : forall G -> (ElJJ (ElSO G)) (MuSO F P) P -> MuSO qTreeSO P
+  go : forall G -> <! <! G !>SO !>JJ (MuSO F P) P -> MuSO qTreeSO P
   go qR        f            = treeSO f
   go q1        it           = la inl it ra
   go (S q+ T)  (inl s)      = go S s
@@ -346,8 +360,8 @@ alternating leaf/pivot structure gives us just what we need: let us store
 the ordering evidence at the leaves!
 
 %format MuOSO = "\F{\upmu^\le_{" SO "}}"
-%format ElOSO = "\F{\llbracket\_\rrbracket^\le_{" SO "}}}"
-%format (ElOSO (t)) = "\F{\llbracket}" t "\F{\rrbracket^\le_{" SO "}}"
+%format !>OSO = "\F{\rrbracket^\le_{" SO "}}"
+%format <!_!>OSO = <! "\_" !>OSO
 %if False
 \begin{code}
 pattern SHUNT X = X
@@ -355,16 +369,16 @@ pattern SHUNT X = X
 %endif
 %format SHUNT = "\hspace*{0.5in}"
 \begin{code}
-ElOSO : SO -> forall {P} -> REL (TB P) -> REL P -> REL (TB P)
-ElOSO qR        R L l u = R l u
-ElOSO q1        R L l u = (TBR L) l u
-ElOSO (S q+ T)  R L l u = (ElOSO S) R L l u + (ElOSO T) R L l u
-ElOSO (S q^ T)  R L l u = Sg _ \ p ->
-  SHUNT (ElOSO S) R L l (tb p) * (ElOSO T) R L (tb p) u
+<!_!>OSO : SO -> forall {P} -> REL <$ P $>D -> REL P -> REL <$ P $>D
+<! qR !>OSO       R L l u = R l u
+<! q1 !>OSO       R L l u = <$ L $>F l u
+<! S q+ T !>OSO R L l u = <! S !>OSO R L l u + <! T !>OSO R L l u
+<! S q^ T !>OSO R L l u = Sg _ \ p ->
+  SHUNT <! S !>OSO R L l (tb p) * <! T !>OSO R L (tb p) u
 
 data MuOSO  (F : SO){P : Set}(L : REL P)
-            (l u : (TB P)) : Set where
-  la_ra : (ElOSO F) (MuOSO F L) L l u -> MuOSO F L l u
+            (l u : <$ P $>D) : Set where
+  la_ra : <! F !>OSO (MuOSO F L) L l u -> MuOSO F L l u
 \end{code}
 We have shifted from sets to relations, in that our types are indexed
 by lower and upper bounds. The leaves demand evidence that the bounds
@@ -404,7 +418,7 @@ treeOSO :  forall {P F}{L : REL P}{l u} ->
            MuOSO F L l u                -> MuOSO qTreeSO L l u
 treeOSO {P}{F}{L} la f ra = go F f where
   go : forall G {l u}  ->
-           (ElOSO G) (MuOSO F L) L l u  -> MuOSO qTreeSO L l u
+           <! G !>OSO (MuOSO F L) L l u  -> MuOSO qTreeSO L l u
   go qR        f              = treeOSO f
   go q1        _              = la inl ! ra
   go (S q+ T)  (inl s)        = go S s
@@ -412,8 +426,228 @@ treeOSO {P}{F}{L} la f ra = go F f where
   go (S q^ T)  (s \\ p \\ t)  = la inr (go S s \\ p \\ go T t) ra
 \end{code}
 
+We have acquired a collection of orderable datatypes which all amount
+to specific patterns of node-labelled binary trees: an interval is a
+singleton node; a list is a right spine. All share the treelike
+structure which ensures that pivots alternate with leaves bearing the
+evidence the pivots are correctly placed with respect to their
+immediate neighbours.
 
-\bibliographystyle{plainnat}      % basic style, author-year citations
-\bibliography{Ornament}   % name your BibTeX data base
+
+\section{Flattening With Concatenation}
+
+%format $>+ = "\!\F{^{+}}"
+If we are in the sorting business, whatever intermediate data structures
+we might choose, we shall want to deliver some kind of list in the end.
+Let us name our family of ordered lists |<$ L $>+|, as the leaves form
+a nonempty chain of |<$ L $>F| ordering evidence.
+
+\begin{code}
+<$_$>+ : forall {P} -> REL P -> REL <$ P $>D
+<$ L $>+ = MuOSO qListSO L
+\end{code}
+
+As all of our orderable structures amount to trees, it suffices to flatten
+trees to lists. Let us take the usual na{\"\i}ve approach as our starting
+point. In Haskell, we might write
+\begin{alltt}
+flatten Leaf         = []
+flatten (Node l p r) = flatten l ++ p : flatten r
+\end{alltt}
+so let us try to do the same in Agda with ordered lists. We shall need
+concatenation, so let us try to join lists with a shared bound |p| in the
+middle.
+%format ++ = "\F{+\!\!+}"
+%format _++_ = "\_\!" ++ "\!\_"
+%if False
+\begin{code}
+postulate BROWN : {X Y : Set} -> X -> Y
+infixr 8 _++_
+\end{code}
+%endif
+%format (BROWN x) = "\brownBG{\(" x "\)}"
+\begin{code}
+_++_ :  forall {P}{L : REL P}{l p u} ->
+  <$ L $>+ l p -> <$ L $>+ p u -> <$ L $>+ l u
+la inl _ ra               ++ ys = (BROWN ys)
+la inr (_ \\ x \\ xs) ra  ++ ys = la inr (! \\ x \\ xs ++ ys) ra
+\end{code}
+
+The `cons' case goes without a hitch, but there is trouble at `nil'.
+We have |ys : MuOSO qListSO L p u| and we know |<$ L $>F l p|, but
+we need to return a |MuOSO qListSO L l u|.
+
+\textbf{draw a diagram showing the --- ---o---o--- situation}
+
+``The trouble is easy to fix,'' one might confidently assert, whilst
+secretly thinking, ``What a nuisance!''. We can readily write a helper
+function which unpacks |ys|, and whether it is nil or cons, extends its
+leftmost order evidence by transitivity. And this really is a nuisance,
+because, thus far, we have not required transitivity to keep our code
+well typed: all order evidence has stood between neighbouring elements.
+Here, we have two pieces of ordering evidence which we must join, because
+we have nothing to put in between them.
+Then, the penny drops. Looking back at the code for flatten, observe that
+|p| is the pivot and the whole plan is to put it between the lists. You
+can't always get what you want, but you can get what you need.
+
+%format sandwich = "\F{sandwich}"
+\begin{code}
+sandwich :  forall {P}{L : REL P}{l u} p ->
+  <$ L $>+ l (tb p) -> <$ L $>+ (tb p) u -> <$ L $>+ l u
+sandwich p la inl _ ra               ys = la inr (! \\ p \\ ys) ra
+sandwich p la inr (_ \\ x \\ xs) ra  ys = la inr (! \\ x \\ sandwich p xs ys) ra
+\end{code}
+
+%format flattenT = "\F{flatten}"
+%format flattenOSO = "\F{flatten}^\le_{" SO "}"
+We are now ready to flatten trees, and thence any ordered
+structure: 
+
+\begin{code}
+flattenT : forall {P}{L : REL P}{l u} ->
+  MuOSO qTreeSO L l u -> <$ L $>+ l u
+flattenT la inl _ ra              = la inl ! ra
+flattenT la inr (l \\ p \\ r) ra  = sandwich p (flattenT l) (flattenT r)
+
+flattenOSO : forall {P}{L : REL P}{F}{l u} ->
+  MuOSO F L l u -> <$ L $>+ l u
+flattenOSO = flattenT o treeOSO
+\end{code}
+
+For a little extra speed we might fuse that composition, but it seems
+frivolous to do so as then benefit is outweighed by the quadratic penalty
+of left-nested concatenation. The standard remedy applies: we can introduce
+an accumulator \cite{Wadler87theconcatenate}, but our experience with |++|
+should alert us to the possibility that it may require some thought.
+
+
+\section{Faster Flattening, Generically}
+
+%format flandwich = "\F{flandwich}"
+%format fflatten = "\F{flatten}"
+We may define |fflatten| generically, and introduce an accumulator yielding a
+combined flatten-and-append which works right-to-left, growing the
+result with successive conses. But what should be the bounds of the
+accumulator? If we have not learned our lesson, we might be tempted by
+%format flapp = "\F{flapp}"
+\begin{spec}
+flapp : forall {P}{L : REL P}{F}{l p u} ->
+  MuOSO F L l p -> <$ L $>+ p u -> <$ L $>+ l u 
+\end{spec}
+but again we face the question of what to do when we reach a leaf. We
+should not need transitivity to rearrange a tree of ordered neighbours
+into a sequence. We can adopt the previous remedy of inserting the element
+|p| in the middle, but we shall then need to think about where |p| will
+come from in the first instance, for example when flattening an empty
+structure.
+\begin{code}
+flapp : forall {P}{L : REL P}{F}{l u} G p ->
+    <! G !>OSO (MuOSO F L) L l (tb p) ->
+   <$ L $>+ (tb p) u -> <$ L $>+ l u
+flapp {F = F} qR  p la t ra         ys  = flapp F p t ys
+flapp q1          p _               ys  = la inr (! \\ p \\ ys) ra
+flapp (S q+ T)    p (inl s)         ys  = flapp S p s ys
+flapp (S q+ T)    p (inr t)         ys  = flapp T p t ys
+flapp (S q^ T)    p (s \\ p' \\ t)  ys  = flapp S p' s (flapp T p t ys)
+\end{code}
+To finish the job, we need to work our way down the right spine of the
+input in search of its rightmost element, which initialises |p|.
+\begin{code}
+fflatten : forall {P}{L : REL P}{F}{l u} ->
+  MuOSO F L l u -> <$ L $>+ l u 
+fflatten {P}{L}{F}{l}{u} la t ra = go F t  where
+  go : forall {l} G -> <! G !>OSO (MuOSO F L) L l u -> <$ L $>+ l u
+  go qR        t              = fflatten t
+  go q1        _              = la inl ! ra
+  go (S q+ T)  (inl s)        = go S s
+  go (S q+ T)  (inr t)        = go T t
+  go (S q^ T)  (s \\ p \\ t)  = flapp S p s (go T t)
+\end{code}
+
+This is effective, but it is more complicated than I should like. It
+is basically the same function twice, in two different modes,
+depending on what is to be affixed \emph{after} the rightmost order
+evidence in the structure being flattened: either a pivot-and-tail in
+the case of |flapp|, or nothing in the case of |fflatten|. The problem
+is one of parity: the thing we must affix to one odd-length
+leaf-node-leaf alternation to get another is an even-length node-leaf
+alternation. Correspondingly, it is hard to express the type of the
+accumulator cleanly. Once again, I begin to suspect that this is a
+difficult thing to do because it is the wrong thing to do. How can we
+reframe the problem, so that we work only with odd-length leaf-delimited
+data?
+
+
+\section{A Replacement for Concatenation}
+
+My mathematical mentor, Tom K\"orner, is fond of remarking ``A
+mathematician is someone who knows that $0$ is $0+0$". It is often
+difficult to find the structure you need when the problem in front of
+you is a degenerate case of it. If we think again about concatenation,
+we might realise that it does not amount to \emph{affixing} one list
+to another, but rather \emph{replacing} the `nil' of the first list
+with the whole of the second. We might then notice that the
+\emph{monoidal} structure of lists is in fact degenerate
+\emph{monadic} structure.
+
+Any syntax has a monadic structure, where `return' embeds variables as
+terms and `bind' is substitution. Quite apart from their `prioritised
+choice' monadic structure, lists are the terms of a degenerate syntax
+with one variable (called `nil') and only unary operators (`cons` with
+a choice of element). Correspondingly, they have this substitution
+structure: substituting nil gives concatenation, and the monad laws
+are the monoid laws.
+
+Given this clue, let us consider concatenation and flattening in terms
+of \emph{replacing} the rightmost leaf by a list, rather than affixing
+more data to it. We replace the list to append with a function which
+maps the contents of the rightmost leaf---some order evidence---to its
+replacement. The type looks more like that of `bind' than `append',
+because in some sense it is!
+
+%format +++ = ++
+%format _+++_ = _++_
+%format Replacement = "\F{Replacement}"
+\begin{code}
+infixr 8 _+++_
+Replacement : forall {P}(L : REL P)(n u : <$ P $>D) -> Set
+Replacement L n u = forall {m}{{_ : <$ L $>F m n}} -> <$ L $>+ m u
+
+_+++_ : forall {P}{L : REL P}{l n u} ->
+  MuOSO qListSO L l n -> Replacement L n u ->
+  MuOSO qListSO L l u
+la inl _ ra               +++ ys = ys
+la inr (_ \\ x \\ xs) ra  +++ ys = la inr (! \\ x \\ xs +++ ys) ra
+\end{code}
+
+Careful use of instance arguments leaves all the manipulation of
+evidence to the machine. In the `nil' case, |ys| is silently
+instantiated with exactly the evidence exposed in the `nil' pattern
+on the left.
+
+Let us now deploy the same technique for |fflatten|.
+
+%format fflapp = "\F{flapp}"
+%format flatten = "\F{flatten}"
+\begin{code}
+fflapp : forall {P}{L : REL P}{F}{l n u} ->
+  MuOSO F L l n ->  Replacement L n u -> <$ L $>+ l u 
+fflapp {P}{L}{F}{u = u} la t ra ys = go F t ys where
+  go :   forall {l n} G -> <! G !>OSO (MuOSO F L) L l n ->
+          Replacement L n u -> <$ L $>+ l u
+  go qR        t              ys  = fflapp t ys
+  go q1        _              ys  = ys
+  go (S q+ T)  (inl s)        ys  = go S s ys
+  go (S q+ T)  (inr t)        ys  = go T t ys
+  go (S q^ T)  (s \\ p \\ t)  ys  = go S s la inr (! \\ p \\ go T t ys) ra
+
+flatten : forall {P}{L : REL P}{F}{l u} ->
+  MuOSO F L l u -> <$ L $>+ l u
+flatten t = fflapp t la inl ! ra
+\end{code}
+
+\bibliographystyle{plainnat} % basic style, author-year citations
+\bibliography{Ornament} % name your BibTeX data base
 
 \end{document}
