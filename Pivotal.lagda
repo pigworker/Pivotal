@@ -631,11 +631,11 @@ balanced, then we have a little problem:
 \begin{code}
   rotater : forall {l u} -> BST l u -> BST l u
   rotater (node p lp pu (node m lm mp lt mt) rt)
-    = node m lm (HOLE 0) lt (node p mp pu mt rt)
+    = node m lm (HOLE 2) lt (node p mp pu mt rt)
   rotater t = t
 \end{code}
 We have discarded the non-local ordering evidence |lp : <$ L $>F l (tb p)|,
-but now we need the non-local |(HOLE 0) : <$ L $>F (tb m) u| and we do not
+but now we need the non-local |(HOLE 2) : <$ L $>F (tb m) u| and we do not
 have it. Of course, we can prove this goal from |mp| and |pu| if we know
 that |L| is transitive, but if we want to make less work for ourselves, we
 should rather not demand non-local ordering evidence in the first place.
@@ -703,6 +703,14 @@ subtree of |node|, yielding a sensible |cons|.
     cons  :  (p : P) ->
              <$ L $>F l (tb p) -> OList (tb p) u -> OList l u 
 \end{code}
+
+By figuring out how to build ordered binary search trees, we have
+actually discovered how to build all sorts of in-order data
+structures. We simply need to show how the data are build from
+particular patterns of |BST| components. So, rather than flattening
+binary search trees, let us pursue a generic account of in-order datatypes,
+then flatten them \emph{all}.
+
 
 \section{Jansson and Jeuring's PolyP Universe}
 
@@ -1125,6 +1133,13 @@ flatten : forall {P}{L : REL P}{F}{l u} ->
   MuOSO F L l u -> <$ L $>+ l u
 flatten t = fflapp t la inl ! ra
 \end{code}
+
+
+\section{An Indexed Universe of Orderable Data}
+
+
+\section{Balanced 2-3 Trees}
+
 
 \bibliographystyle{plainnat} % basic style, author-year citations
 \bibliography{Ornament} % name your BibTeX data base
