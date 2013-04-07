@@ -95,9 +95,13 @@
 
 module Pivotal where
 
+postulate BROWN : {X Y : Set} -> X -> Y
+postulate FOOL : {X Y : Set} -> Y -> X -> Y
+
 \end{code}
 %endif
-
+%format (BROWN x) = "\brownBG{\(" x "\)}"
+%format (FOOL y x) = y
 
 \section{Introduction}
 
@@ -136,6 +140,15 @@ more besides.
 %format ff = "\C{f\!f}"
 %format forall = "\D{\forall}"
 %format o = "\F{\circ}"
+%format So = "\F{So}"
+%format so = "\F{so}"
+%format Maybe = "\D{Maybe}"
+%format yes = "\C{yes}"
+%format no = "\C{no}"
+%format if = "\F{if}"
+%format then = "\F{then}"
+%format else = "\F{else}"
+%format if_then_else_ = if "\_" then "\_" else "\_"
 
 \begin{code}
 data Zero : Set where
@@ -148,10 +161,35 @@ data Two : Set where tt ff : Two
 \end{code}
 
 \begin{code}
+if_then_else_ : {X : Set} -> Two -> X -> X -> X
+if tt  then t else f = t
+if ff  then t else f = f
+infix 1 if_then_else_
+\end{code}
+
+\begin{code}
+So : Two -> Set
+So tt  = One
+So ff  = Zero
+\end{code}
+
+\begin{code}
 data _+_ (S T : Set) : Set where
   inl : S -> S + T
   inr : T -> S + T
 infixr 4 _+_
+\end{code}
+
+\begin{code}
+data Maybe (X : Set) : Set where
+  yes  : X -> Maybe X
+  no   : Maybe X
+\end{code}
+
+\begin{code}
+so : forall {X} -> Two -> Maybe X -> Maybe X
+so tt  mx  = mx
+so ff  _   = no
 \end{code}
 
 \begin{code}
@@ -174,9 +212,174 @@ _o_ : {A : Set}{B : A -> Set}{C : (a : A) -> B a -> Set}
 \end{code}
 
 
-\section{Searching for Search Trees}
+\section{Searching for Search Trees (and Barking up the Wrong One)}
 
-\textbf{Throw in a few painful variations, then discover loose bounds.}
+%if False
+\begin{code}
+module BinarySearchTree (P : Set)(le : P -> P -> Two) where
+\end{code}
+%endif
+
+David Turner \cite{turner:ESFP} notes that whilst \emph{quicksort} is
+often cited as a program which defies structural recursion, it
+performs the same sorting algorithm (although not with the same memory
+usage pattern) as building a binary search tree and then flattening
+it. The irony is completed by noting that the latter sorting algorithm
+is the archetype of structural recursion in Rod Burstall's development
+of the concept \cite{burstall:induction}. Binary search trees have
+empty leaves and nodes labelled with elements which act like \emph{pivots}
+in quicksort: the left subtree stores elements which precede the pivot
+in the order, the right subtree elements which follow it. Surely this
+invariant is crying out to be captured in a dependent type! Let us search
+for a type for search trees.
+
+We could, of course, choose to define binary search trees as ordinary
+node-labelled trees with parameter |P| giving the type of pivots:
+%format TrS = "\D{Tree}"
+%format lfS = "\C{leaf}"
+%format ndS = "\C{node}"
+%format IsBST = "\F{IsBST}"
+
+\begin{code}
+  data TrS : Set where
+    lfS  : TrS
+    ndS  : TrS -> P -> TrS -> TrS
+\end{code}
+We might then introduce the invariant as a predicate |IsBST : TrS -> Set|.
+We could then implement insertion in our usual way, and then prove separately
+that our program maintains the invariant. However, the joy of dependently
+typed programming is that working with refined types for the data themselves
+can often alleviate and sometimes obviate the burden of proof. Let us try to
+bake the invariant in.
+
+\paragraph{What should the type of a subtree tell us?} If we want to
+check the invariant at a given node, we shall need some information
+about the subtrees which we might expect comes from their type. We
+require that the elements left of the pivot precede it, so we could
+require the whole set of those elements represented somehow, but of
+course, for any order worthy of the name, it suffices to check only
+the largest. Similarly, we shall need to know the smallest element of
+the right subtree. It would seem that we need the type of a search
+tree to tell us its extreme elements (or that it is empty).
+
+%format BST = "\D{BST}"
+%format STRange = "\D{STRange}"
+%format empty = "\C{\emptyset}"
+%format - = "\!\C{{}-}\!"
+%format _-_ = "\_" - "\_"
+\begin{code}
+  data STRange : Set where
+    empty  : STRange
+    _-_    : P -> P -> STRange
+  infix 9 _-_
+\end{code}
+
+\paragraph{From checking the invariant to enforcing it.}
+Assuming we can test the order on |P| with some |le : P -> P -> Two|,
+we could write a recursive function to check whether a |TrS| is a valid
+search tree and compute its range:
+
+%format valid = "\F{valid}"
+\begin{code}
+  valid : TrS -> Maybe STRange
+  valid lfS = yes empty
+  valid (ndS l p r) with valid l | valid r
+  ... | yes empty    | yes empty    = yes (p - p)
+  ... | yes empty    | yes (c - d)  = so (le p c) (yes (p - d))
+  ... | yes (a - b)  | yes empty    = so (le b p) (yes (a - p))
+  ... | yes (a - b)  | yes (c - d)
+    = so (le b p) (so (le p c) (yes (a - d)))
+  ... | _            | _            = no
+\end{code}
+
+As |valid| is a \emph{fold} over the structure of |TrS|, we can follow
+my colleagues Bob Atkey, Neil Ghani and Patricia Johann in computing
+the \emph{partial refinement} \cite{DBLP:journals/corr/abs-1205-2492}
+of |TrS| which |valid| induces. We seek a type |BST : STRange -> Set|
+such that \(|BST r| \cong \{|t : TrS| \mid |valid t| = |yes r|\}\) and
+we find it by refining the type of each constructor of |TrS| with the
+check performed by the corresponding case of |valid|, assuming that
+the subtrees yielded valid ranges. We can calculate the conditions to
+check and the means to compute the output range if successful.
+
+%format leftOK = "\F{lOK}"
+%format rightOK = "\F{rOK}"
+%format nodeRange = "\F{rOut}"
+\begin{code}
+  leftOK   : STRange -> P -> Two
+  leftOK   empty    p  = tt
+  leftOK   (_ - u)  p  = le u p
+
+  rightOK  : P -> STRange -> Two
+  rightOK  p  empty    = tt
+  rightOK  p  (l - _)  = le p l
+
+  nodeRange : STRange -> P -> STRange -> STRange
+  nodeRange empty    p  empty    = p - p
+  nodeRange empty    p  (_ - u)  = p - u
+  nodeRange (l - _)  p  empty    = l - p
+  nodeRange (l - _)  _  (_ - u)  = l - u
+\end{code}
+
+We thus obtain the following refinement from |TrS| to |BST|:
+
+\begin{code}
+  data BST : STRange -> Set where
+    lfS  :  BST empty
+    ndS  :  forall {l r} -> BST l -> (p : P) -> BST r ->
+            {_ : So (leftOK l p)} -> {_ : So (rightOK p r)} ->
+            BST (nodeRange l p r)
+\end{code}
+
+The |So| function maps |tt| to |One| and |ff| to |Zero|, requiring
+that the tests on left and right ranges succeed. When a test passes,
+Agda can infer the value |it|, hence we may safely leave this evidence
+implicit. If a test fails, Agda will complain that it cannot
+synthesize the implicit argument, for a very good reason!
+
+\paragraph{Attempting to implement insertion.}
+Now that each binary search tree tells us its type, can we implement
+insertion? Rod Burstall's implementation is as follows
+%format insertS = "\F{insert}"
+\begin{code}
+  insertS : P -> TrS -> TrS
+  insertS y lfS            = ndS lfS y lfS
+  insertS y (ndS lt p rt)  =
+    if le y p  then  ndS (insertS y lt) p rt
+               else  ndS lt p (insertS y rt)
+\end{code}
+but we shall have to try a little harder to give a type to |insertS|,
+as we must somehow negotiate the ranges. If we are inserting a new
+extremum, then the output range will be wider than the input range.
+%format oRange = "\F{oRange}"
+\begin{code}
+  oRange : STRange -> P -> STRange
+  oRange empty    y = y - y
+  oRange (l - u)  y =
+    if le y l then y - u else if le u y then l - y else l - u
+\end{code}
+
+So, we have the right type for our data and for our program. Surely the
+implementation will go like clockwork!
+%format shite = "\F{insert}"
+\begin{spec}
+  shite : forall {r} y -> BST r -> BST (oRange r y)
+  shite y lfS            = ndS lfS y lfS
+  shite y (ndS lt p rt)  =
+    if le y p  then  (BROWN (ndS (shite y lt) p rt))
+               else  (BROWN (ndS lt p (shite y rt)))
+\end{spec}
+The |lfS| case checks easily, but alas for |ndS|! We have |lt : BST l|
+and |rt : BST r| for some ranges |l| and |r|. The |then| branch delivers
+a |BST (nodeRange (oRange l y) p r)|, but the type required is
+|BST (oRange (nodeRange l p r) y)|, so we need some theorem-proving to
+fix the types, re-|nodeRange|ing the |oRange|, let alone to discharge the
+obligation |So (leftOK (oRange l y) p)|. Of course, we could plough on,
+despite the slough of proof, and force this definition through, but I
+have had enough and so have you!
+
+
+\section{Loose Morals}
 
 We can extend any type with top and bottom elements as follows.
 
@@ -459,14 +662,8 @@ concatenation, so let us try to join lists with a shared bound |p| in the
 middle.
 %format ++ = "\F{+\!\!+}"
 %format _++_ = "\_\!" ++ "\!\_"
-%if False
 \begin{code}
-postulate BROWN : {X Y : Set} -> X -> Y
 infixr 8 _++_
-\end{code}
-%endif
-%format (BROWN x) = "\brownBG{\(" x "\)}"
-\begin{code}
 _++_ :  forall {P}{L : REL P}{l p u} ->
   <$ L $>+ l p -> <$ L $>+ p u -> <$ L $>+ l u
 la inl _ ra               ++ ys = (BROWN ys)
@@ -583,7 +780,7 @@ data?
 
 My mathematical mentor, Tom K\"orner, is fond of remarking ``A
 mathematician is someone who knows that $0$ is $0+0$". It is often
-difficult to find the structure you need when the problem in front of
+difficult to recognize the structure you need when the problem in front of
 you is a degenerate case of it. If we think again about concatenation,
 we might realise that it does not amount to \emph{affixing} one list
 to another, but rather \emph{replacing} the `nil' of the first list
