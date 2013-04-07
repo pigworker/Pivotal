@@ -95,11 +95,21 @@
 
 module Pivotal where
 
+data Nat : Set where
+  ze : Nat
+  su : Nat -> Nat
+
+{-# BUILTIN NATURAL Nat #-}
+{-# BUILTIN ZERO ze #-}
+{-# BUILTIN SUC su #-}
+
 postulate BROWN : {X Y : Set} -> X -> Y
+postulate HOLE : {X : Set} -> Nat -> X
 postulate FOOL : {X Y : Set} -> Y -> X -> Y
 
 \end{code}
 %endif
+%format (HOLE n) = "\yellowBG{\(?_{" n "}\)}"
 %format (BROWN x) = "\brownBG{\(" x "\)}"
 %format (FOOL y x) = y
 
@@ -138,6 +148,7 @@ more besides.
 %format Two = "\D{2}"
 %format tt = "\C{t\!t}"
 %format ff = "\C{f\!f}"
+%format not = "\F{\neg}"
 %format forall = "\D{\forall}"
 %format o = "\F{\circ}"
 %format So = "\F{So}"
@@ -158,6 +169,12 @@ record One : Set where constructor it
 
 \begin{code}
 data Two : Set where tt ff : Two
+\end{code}
+
+\begin{code}
+not : Two -> Two
+not tt  = ff
+not ff  = tt
 \end{code}
 
 \begin{code}
@@ -216,7 +233,7 @@ _o_ : {A : Set}{B : A -> Set}{C : (a : A) -> B a -> Set}
 
 %if False
 \begin{code}
-module BinarySearchTree (P : Set)(le : P -> P -> Two) where
+module BinarySearchTreeBad (P : Set)(le : P -> P -> Two) where
 \end{code}
 %endif
 
@@ -373,15 +390,47 @@ The |lfS| case checks easily, but alas for |ndS|! We have |lt : BST l|
 and |rt : BST r| for some ranges |l| and |r|. The |then| branch delivers
 a |BST (nodeRange (oRange l y) p r)|, but the type required is
 |BST (oRange (nodeRange l p r) y)|, so we need some theorem-proving to
-fix the types, re-|nodeRange|ing the |oRange|, let alone to discharge the
+fix the types, let alone to discharge the
 obligation |So (leftOK (oRange l y) p)|. Of course, we could plough on,
 despite the slough of proof, and force this definition through, but I
 have had enough and so have you!
 
+We have written a datatype definition which is logically correct but
+which is pragmatically disastrous. Is it thus inevitable that all
+datatype definitions which enforce the ordering invariant will be
+pragmatically disastrous? Or are there lessons we can learn about
+dependently typed programming that will help us to do better?
 
-\section{Loose Morals}
 
-We can extend any type with top and bottom elements as follows.
+\section{Why Measure When You Can Require?}
+
+In the previous section, we got the wrong answer because we asked the
+wrong question: ``What should the type of a subtree tell us?''
+somewhat presupposes that information bubbles outward from subtrees to
+the nodes which contain them. As functional programmers in Milner's
+tradition, we are used to synthesizing the type of a thing. Moreover,
+the very syntax we use for |data| declarations treats the index
+delivered from each constructor as some sort of output. It seems
+natural to take datatype indices as some sort of measure of the data,
+which is all very well for the length of a vector, but when the
+measurement is computationally intricate, as in the case of computing
+a search tree's extrema, programming becomes vexed by the need to
+prove theorems about the measuring functions. The presence of `green
+slime'---defined functions in the return types of constructors---is a
+danger sign in type design.
+
+We can, however, take an alternative view of types, not as synthesized
+measurements of data, bubbled outward, but as checked
+\emph{requirements} of data, pushed \emph{inward}. To enforce the
+invariant, let us rather ask the question ``What should we tell the
+type of a subtree?''.
+
+The elements of the left subtree must precede the pivot in the order;
+those of the right must follow it. Correspondingly, our requirements
+on a subtree amount to an \emph{interval} in which its elements must
+fall. As any element can find a place somewhere in a search tree, we
+shall need to consider unbounded intervals also. We can extend any
+type with top and bottom elements as follows.
 
 %format <$  = "\!\!"
 %format $>D = "\D{\!_\bot^\top}"
@@ -397,30 +446,263 @@ data <$_$>D (P : Set) : Set where
   bot  :       <$ P $>D
 \end{code}
 
-Of course, we shall need to extend the order, putting |top| at the
+Correspondingly, we can extend the order, putting |top| at the
 top and |bot| at the bottom.
 
-%format REL = "\F{Rel}"
-%format $>F = "\F{\!_\bot^\top}"
-%format <$_$>F = \_ $>F
+%format $>B = "\F{\!_\bot^\top}"
+%format <$_$>B = "\_" $>B
 \begin{code}
-REL : Set -> Set1
-REL P = P -> P -> Set
-
-<$_$>F : forall {P} -> REL P -> REL <$ P $>D
-<$ L $>F x       top     = One
-<$ L $>F (tb x)  (tb y)  = L x y
-<$ L $>F bot     y       = One
-<$ L $>F _       _       = Zero
+<$_$>B : forall {P} -> (P -> P -> Two) -> <$ P $>D -> <$ P $>D -> Two
+<$ le $>B _       top     = tt
+<$ le $>B (tb x)  (tb y)  = le x y
+<$ le $>B bot     _       = tt
+<$ le $>B _       _       = ff
 \end{code}
 
-\textbf{Use |Two| here?}
+We can now index search trees by a pair of \emph{loose bounds}, not measuring
+the range of the contents exactly, but constraining it sufficiently. At
+each node, we can require that the pivot falls in the interval, then use the
+pivot to bound the subtrees.
+%if False
+\begin{code}
+module BinarySearchTreeBetter (P : Set)(le : P -> P -> Two) where
+\end{code}
+%endif
+%format leaf = "\C{leaf}"
+%format node = "\C{node}"
+%format Between = "\F{Between}"
+\begin{code}
+  data BST (l u : <$ P $>D) : Set where
+    leaf :  BST l u
+    node :  (p : P) -> So (<$ le $>B l (tb p)) -> So (<$ le $>B (tb p) u) ->
+            BST l (tb p) -> BST (tb p) u -> BST l u
+\end{code}
+In doing so, we eliminate all the `green slime' from the indices of the
+type. The |leaf| constructor now has many types, indicating all its elements
+satisfy any requirements. We also gain |BST bot top| as the general type of
+binary search trees for |P|.
+
+%format insert2 = "\F{insert}"
+Can we implement |insert2| for this definition? We can certainly give it a
+rather cleaner type. When we insert a new element into the left subtree of a
+node, we must ensure that it precedes the pivot: that is, we expect
+insertion to \emph{preserve} the bounds of the subtree, and we should already
+know that the new element falls within them.
+\begin{code}
+  insert2 :  forall {l u} y -> So (<$ le $>B l (tb y)) -> So (<$ le $>B (tb y) u) ->
+             BST l u -> BST l u
+  insert2 y ly yu  leaf                = node y ly yu leaf leaf
+  insert2 y ly yu  (node p lp pu lt rt)  =
+    if le y p  then  node p lp pu (insert2 y ly (HOLE 0) lt) rt
+               else  node p lp pu lt (insert2 y (HOLE 1) yu rt)
+\end{code}
+We have no need to repair type errors by theorem proving, and most of
+our proof obligations follow directly from our assumptions. Working
+interactively, we can use Agda's proof search helper, Agsy, to fill them
+in for us. Our only outstanding goals are
+\begin{spec}
+  (HOLE 0)  : So (le y p)  -- in the |then| branch
+  (HOLE 1)  : So (le p y)  -- in the |else| branch
+\end{spec}
+The first of these is the very thing our conditional expression has found
+to be true! We could choose to work with an evidence-producing version of
+|if|.
+%format eif = "\F{if}"
+%format eif_then_else_ = if_then_else_
+\begin{code}
+  eif_then_else_ : forall {X : Set} b ->
+    (So b -> X) -> (So (not b) -> X) -> X
+  eif tt then t else f = t it
+  eif ff then t else f = f it
+\end{code}
+We can now \emph{learn} by testing: the |then| branch has a type which is
+reassuringly distinct from that of the |else| branch, and both are more
+informative than the target type, |X|. We have made a little progress:
+%format insert3 = "\F{insert}"
+%if False
+\begin{code}
+  insert3 :  forall {l u} y -> So (<$ le $>B l (tb y)) -> So (<$ le $>B (tb y) u) ->
+             BST l u -> BST l u
+  insert3 y ly yu  leaf                  = node y ly yu leaf leaf
+\end{code}
+%endif
+\begin{code}
+  insert3 y ly yu  (node p lp pu lt rt)  = eif le y p
+    then  (\ yp -> node p lp pu (insert3 y ly yp lt) rt)
+    else  (\ py -> node p lp pu lt (insert3 y (BROWN py) yu rt))
+\end{code}
+However, we are now defeated by the fact that |py : So (not (le y p))|,
+which is not the evidence we need for |(HOLE 1)|. For any given total ordering,
+we should be able to fix this up by proving a theorem, but this is still more
+work that I enjoy. The trouble is that we couched our definition in terms
+of the truth of bits computed in a particular way, rather than the ordering
+\emph{relation}. Let us now tidy up this detail.
+
 
 \section{One Way Or The Other}
 
-\textbf{In which we learn to present the \emph{totality} of the order,
-rather than its \emph{decidability}.}
+%format REL = "\F{Rel}"
+%format $>F = "\F{\!_\bot^\top}"
+%format <$_$>F = "\_" $>F
+We can recast our definition in terms of relations---families of sets |REL P|
+\begin{code}
+REL : Set -> Set1
+REL P = P -> P -> Set
+\end{code}
+giving us types which directly make statements about elements of |P|, rather
+than about bits. Let us suppose we have some `less or equal' ordering relation
+|L : REL P|. For natural numbers, we can define
+%format <= = "\F{\le}"
+%format _<=_ = "\_\!" <= "\!\_"
+\begin{code}
+_<=_ : REL Nat
+ze    <= y     =  One
+su x  <= ze    =  Zero
+su x  <= su y  =  x <= y
+\end{code}
 
+The information we shall need just corresponds to the totality
+of |L|: for any given |x| and |y|, |L| must hold \emph{one way or the other}.
+For |Nat|, we may define
+%format nowoto = "\F{owoto}"
+\begin{code}
+nowoto : forall x y -> (x <= y) + (y <= x)
+nowoto ze      ze      = inl it
+nowoto ze      (su y)  = inl it
+nowoto (su x)  ze      = inr it
+nowoto (su x)  (su y)  = nowoto x y
+\end{code}
+using only mechanical case-splitting and proof search.
+
+Any such ordering relation on elements lifts readily to bounds.
+\begin{code}
+<$_$>F : forall {P} -> REL P -> REL <$ P $>D
+<$ L $>F _       top     = One
+<$ L $>F (tb x)  (tb y)  = L x y
+<$ L $>F bot     _       = One
+<$ L $>F _       _       = Zero
+\end{code}
+
+Let us then parametrize over some
+\[ |owoto : forall x y -> L x y + L y x| \]
+and reorganise our development.
+%if False
+\begin{code}
+module BinarySearchTreeWorks
+  {P : Set}(L : REL P)(owoto : forall x y -> L x y + L y x) where
+\end{code}
+%endif
+\begin{code}
+  data BST (l u : <$ P $>D) : Set where
+    leaf  :  BST l u
+    node  :  (p : P) -> <$ L $>F l (tb p) -> <$ L $>F (tb p) u ->
+             BST l (tb p) -> BST (tb p) u -> BST l u
+
+  insert2 :  forall {l u} y -> <$ L $>F l (tb y) -> <$ L $>F (tb y) u ->
+             BST l u -> BST l u
+  insert2 y ly yu leaf = node y ly yu leaf leaf
+  insert2 y ly yu (node p lp pu lt rt)  with owoto y p
+  ... | inl  yp  = node p lp pu (insert2 y ly yp lt) rt
+  ... | inr  py  = node p lp pu lt (insert2 y py yu rt)
+\end{code}
+
+The evidence generated by testing |owoto y p| is just what is needed
+to enable insertion in the appropriate subtree. We have found a method
+which seems to work! However, I fear we should not get too excited.
+
+
+\section{The Importance of Local Knowledge}
+
+Our current representation of an ordered tree with $n$ elements
+contains $2n$ pieces of ordering evidence, which is $n-1$ too many. We
+should need only $n+1$ proofs, relating the lower bound to the least
+element, then comparing neighbours all the way along to the greatest
+element (one per element, so far) which must then fall below the upper
+bound (so, one more). As things stand, the pivot at the root is known
+to be greater than every element in the right spine of its left subtree
+and less than every element in the left spine of its right subtree.
+If the tree was built by iterated insertion, these comparisons will
+surely have happened, but that does not mean we should retain the
+information.
+
+Suppose, for example, that we want to rotate a tree, perhaps to keep it
+balanced, then we have a little problem:
+%format rotater = "\F{rotater}"
+\begin{code}
+  rotater : forall {l u} -> BST l u -> BST l u
+  rotater (node p lp pu (node m lm mp lt mt) rt)
+    = node m lm (HOLE 0) lt (node p mp pu mt rt)
+  rotater t = t
+\end{code}
+We have discarded the non-local ordering evidence |lp : <$ L $>F l (tb p)|,
+but now we need the non-local |(HOLE 0) : <$ L $>F (tb m) u| and we do not
+have it. Of course, we can prove this goal from |mp| and |pu| if we know
+that |L| is transitive, but if we want to make less work for ourselves, we
+should rather not demand non-local ordering evidence in the first place.
+
+Looking back at the type of |node|, note that the indices at which we
+demand \emph{ordering} are the same as the indices at which we demand
+\emph{subtrees}. If we strengthen the invariant on trees to ensure that
+there is a sequence of ordering steps from the lower to the upper bound,
+we could dispense with the sometimes non-local evidence stored in |node|s,
+at the cost of a new constraint for |leaf|.
+
+%if False
+\begin{code}
+module BinarySearchTreeBest
+  {P : Set}(L : REL P)(owoto : forall x y -> L x y + L y x) where
+\end{code}
+%endif
+\begin{code}
+  data BST (l u : <$ P $>D) : Set where
+    leaf  :  <$ L $>F l u -> BST l u
+    node  :  (p : P) ->
+             BST l (tb p) -> BST (tb p) u -> BST l u
+\end{code}
+
+Indeed, a binary tree with $n$ nodes will have $n+1$ leaves. An in-order
+traversal of a binary tree is a strict alternation,
+leaf-node-leaf-\ldots -node-leaf, making a leaf the ideal place to keep
+the evidence that neighbouring nodes are in order! Insertion remains easy.
+
+\begin{code}
+  insert2 :  forall {l u} y -> <$ L $>F l (tb y) -> <$ L $>F (tb y) u ->
+             BST l u -> BST l u
+  insert2 y ly yu (leaf _) = node y (leaf ly) (leaf yu)
+  insert2 y ly yu (node p lt rt)  with owoto y p
+  ... | inl  yp  = node p (insert2 y ly yp lt) rt
+  ... | inr  py  = node p lt (insert2 y py yu rt)
+\end{code}
+
+Rotation becomes very easy, with not a proof in sight!
+
+\begin{code}
+  rotater : forall {l u} -> BST l u -> BST l u
+  rotater (node p (node m lt mt) rt) =
+    node m lt (node p mt rt)
+  rotater t = t
+\end{code}
+
+We have arrived at a neat way to keep a search tree in order,
+storing pivot elements at nodes and ordering evidence in leaves. Phew!
+
+%format OList = "\D{OList}"
+%format nil = "\C{nil}"
+%format cons = "\C{cons}"
+But it is only the end of the beginning. To complete our sorting
+algorithm, we need to flatten binary search trees to ordered
+\emph{lists}. Are we due another long story about the discovery
+of a good definition of the latter? Fortunately not! The key idea
+is that an ordered list is just a particularly badly balanced binary
+search tree, where every left subtree is a |leaf|. We can nail that
+down in short order, just by inlining |leaf|'s data in the left
+subtree of |node|, yielding a sensible |cons|.
+\begin{code}
+  data OList (l u : <$ P $>D) : Set where
+    nil   :  <$ L $>F l u -> OList l u
+    cons  :  (p : P) ->
+             <$ L $>F l (tb p) -> OList (tb p) u -> OList l u 
+\end{code}
 
 \section{Jansson and Jeuring's PolyP Universe}
 
