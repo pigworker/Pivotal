@@ -160,6 +160,9 @@ more besides.
 %format then = "\F{then}"
 %format else = "\F{else}"
 %format if_then_else_ = if "\_" then "\_" else "\_"
+%format Nat = "\D{\mathbb{N}}"
+%format ze = "\C{0}"
+%format su = "\C{suc}"
 
 \begin{code}
 data Zero : Set where
@@ -860,13 +863,13 @@ the ordering evidence at the leaves!
 pattern SHUNT X = X
 \end{code}
 %endif
-%format SHUNT = "\hspace*{0.5in}"
+%format SHUNT = "\hspace*{0.6in}"
 \begin{code}
 <!_!>OSO : SO -> forall {P} -> REL <$ P $>D -> REL P -> REL <$ P $>D
 <! qR !>OSO       R L l u = R l u
 <! q1 !>OSO       R L l u = <$ L $>F l u
-<! S q+ T !>OSO R L l u = <! S !>OSO R L l u + <! T !>OSO R L l u
-<! S q^ T !>OSO R L l u = Sg _ \ p ->
+<! S q+ T !>OSO   R L l u = <! S !>OSO R L l u + <! T !>OSO R L l u
+<! S q^ T !>OSO   R L l u = Sg _ \ p ->
   SHUNT <! S !>OSO R L l (tb p) * <! T !>OSO R L (tb p) u
 
 data MuOSO  (F : SO){P : Set}(L : REL P)
@@ -1137,9 +1140,136 @@ flatten t = fflapp t la inl ! ra
 
 \section{An Indexed Universe of Orderable Data}
 
+%format IO = "\D{IO}"
+%format !>IO = "\F{\rrbracket^\le_{" IO "}}"
+%format <!_!>IO = <! "\_" !>IO
+%format MuIO = "\F{\upmu_{" IO "}}"
+%format q0 = "\C{`0}"
+
+Ordering is not the only invariant we might want to enforce on
+orderable data structures. We might have other properties in mind,
+such as size, or balancing invariants. It is straightforward to extend
+our simple universe to allow general indexing as well as
+orderability. We can extend our simple orderable universe |SO| to an
+indexed orderable universe |IO|, just by marking each recursive
+position with an index, then computing the code for each node as a
+function of its index. We may add a |q0| code to rule out some cases
+as illegal.
+
+\begin{code}
+data IO (I : Set) : Set where
+  qR         : I -> IO I
+  q0 q1      : IO I
+  _q+_ _q^_  : IO I -> IO I -> IO I
+
+<!_!>IO :  forall {I P} -> IO I ->
+           (I -> REL <$ P $>D) -> REL P -> REL <$ P $>D
+<! qR i !>IO    R L l u = R i l u
+<! q0 !>IO      R L l u = Zero
+<! q1 !>IO      R L l u = <$ L $>F l u
+<! S q+ T !>IO  R L l u = <! S !>IO R L l u + <! T !>IO R L l u
+<! S q^ T !>IO  R L l u = Sg _ \ p ->
+  SHUNT <! S !>IO R L l (tb p) * <! T !>IO R L (tb p) u
+
+data MuIO  {I P : Set}(F : I -> IO I)(L : REL P)
+           (i : I)(l u : <$ P $>D) : Set where
+  la_ra : <! F i !>IO (MuIO F L) L l u -> MuIO F L i l u
+\end{code}
+
+We recover all our existing data structures by trivial indexing.
+%format qListIO = "\F{`List}"
+%format qTreeIO = "\F{`Tree}"
+%format qIntervalIO = "\F{`Interval}"
+%format qVecIO = "\F{`Vec}"
+%format qEvenIO = "\F{`Even}"
+\begin{code}
+qListIO qTreeIO qIntervalIO : One -> IO One
+qListIO      _ = q1 q+ (q1 q^ qR it)
+qTreeIO      _ = q1 q+ (qR it q^ qR it)
+qIntervalIO  _ = q1 q^ q1
+\end{code}
+
+However, we may also make profitable use of indexing: here are ordered
+\emph{vectors}.
+\begin{code}
+qVecIO : Nat -> IO Nat
+qVecIO ze      = q1
+qVecIO (su n)  = q1 q^ qR n
+\end{code}
+Note that we need no choice of constructor or storage of length information:
+the index determines the shape. If we want, say, even-length tuples, we can use
+|q0| to rule out the odd cases.
+\begin{code}
+qEvenIO : Nat -> IO Nat
+qEvenIO ze           = q1
+qEvenIO (su ze)      = q0
+qEvenIO (su (su n))  = q1 q^ q1 q^ qR n
+\end{code}
+We could achieve a still more flexible notion of data structure by allowing
+a general |Sg|-type rather than our binary |q+|, but we have what we need
+for finitary data structures with computable conditions on indices.
+
+%format treeIO = "\F{tree}"
+
+The |treeIO| operation carries over unproblematically, with more indexed
+input but plain output.
+\begin{code}
+treeIO :  forall {I P}{F : I -> IO I}{L : REL P}
+          {i l u} -> MuIO F L i l u -> MuIO qTreeIO L it l u
+\end{code}
+%if False
+\begin{code}
+treeIO {F = F}{L = L}{i = i} la t ra = go (F i) t where
+  go : forall {l u} G -> <! G !>IO (MuIO F L) L l u -> MuIO qTreeIO L it l u
+  go (qR i)    t              = treeIO t
+  go q0        ()
+  go q1        _              = la inl ! ra
+  go (S q+ T)  (inl s)        = go S s
+  go (S q+ T)  (inr t)        = go T t
+  go (S q^ T)  (s \\ p \\ t)  = la inr (go S s \\ p \\ go T t) ra
+\end{code}
+%endif
+
+%format flattenIO = "\F{flatten}"
+Similarly, |flattenIO| works (efficiently) just as before.
+\begin{code}
+flattenIO :  forall {I P}{F : I -> IO I}{L : REL P}
+             {i l u} -> MuIO F L i l u -> MuIO qListIO L it l u
+\end{code}
+%if False
+\begin{code}
+flattenIO {I}{P}{F}{L}{i}{l}{u} la t ra = go (F i) t la inl ! ra where
+  go : forall G {l n} -> <! G !>IO (MuIO F L) L l n ->
+       (forall {m}{{_ : <$ L $>F m n}} -> MuIO qListIO L it m u) ->
+       MuIO qListIO L it l u
+  go (qR i)    la t ra        ys = go (F i) t ys
+  go q0        ()             ys
+  go q1        _              ys = ys
+  go (S q+ T)  (inl s)        ys = go S s ys
+  go (S q+ T)  (inr t)        ys = go T t ys
+  go (S q^ T)  (s \\ p \\ t)  ys = go S s la inr (! \\ p \\ go T t ys) ra
+\end{code}
+%endif
+
+We now have a universe of indexed orderable data structures with efficient
+flattening. Let us put it to work.
+
 
 \section{Balanced 2-3 Trees}
 
+%format q23TIO = "\F{`23T}"
+To ensure a logarithmic access time for search trees, we can keep them
+balanced. Maintaining balance as close to perfect as possible is
+rather fiddly, but we can gain enough balance by allowing a little
+redundancy.  A standard way to achieve this is to insist on uniform height, but
+allow internal nodes to have
+either one pivot and two subtrees, or two pivots and three subtrees.
+We may readily encode these \emph{2-3 trees}.
+\begin{code}
+q23TIO : Nat -> IO Nat
+q23TIO ze      = q1
+q23TIO (su n)  = qR n q^ (qR n q+ (qR n q^ qR n))
+\end{code}
 
 \bibliographystyle{plainnat} % basic style, author-year citations
 \bibliography{Ornament} % name your BibTeX data base
