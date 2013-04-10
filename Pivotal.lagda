@@ -1572,8 +1572,9 @@ pivot.
     | inr x  with owoto y q
 \end{code}
 %endif
-For completeness, I give the middle and right cases for 3-nodes,
-but it is just as on the left.
+For completeness, I give the middle (|(HOLE 2)|) and right (|(HOLE 3)|)
+cases for 3-nodes,
+but it works just as on the left.
 \begin{code}
   ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
     | inr x  |   inl _  with ins23 n la ! \\ y \\ ! ra mt
