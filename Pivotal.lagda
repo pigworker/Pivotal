@@ -229,6 +229,7 @@ _o_ : {A : Set}{B : A -> Set}{C : (a : A) -> B a -> Set}
       (f : {a : A}(b : B a) -> C a b)(g : (a : A) -> B a) ->
       (a : A) -> C a (g a)
 (f o g) x = f (g x)
+infixr 3 _o_
 
 id : {A : Set} -> A -> A
 id a = a
@@ -770,8 +771,16 @@ actual |P| and its |qR|s by |MuJJ F P|.
 %format neutral = "\F{neutral}"
 %format combine = "\F{combine}"
 %format traverse = "\F{traverse}"
+%format map = "\F{map}"
 %format crush = "\F{crush}"
 %format compMon = "\F{compMon}"
+%format idApp = "\F{idApp}"
+%format monApp = "\F{monApp}"
+%format foldr = "\F{foldr}"
+
+Being finitary and first-order, all of the containers in the |JJ|
+universe are \emph{traversable} in the sense defined by Ross Paterson
+and myself \cite{conor.ross:applicative.functors}.
 
 \begin{code}
 record Applicative (H : Set -> Set) : Set1 where
@@ -795,30 +804,41 @@ traverse {H}{F}{A}{B} AH h t = go qR t where
   go (S q* T)  (s / t)  = (pu _/_ <*> go S s) <*> go T t
 \end{code}
 
+We can specialise |traverse| to standard functorial |map|.
+\begin{code}
+idApp : Applicative (\ X -> X)
+idApp = record {pure = id ; ap = id}
+
+map : forall {F A B} -> (A -> B) -> MuJJ F A -> MuJJ F B
+map = traverse idApp
+\end{code}
+
+We can equally well specialise |traverse| to a monoidal |crush|
 \begin{code}
 record Monoid (X : Set) : Set where
   field
     neutral : X
     combine : X -> X -> X
 open Monoid
-\end{code}
 
-\begin{code}
-compMon : forall {X} -> Monoid (X -> X)
-compMon = record {neutral = id ; combine = \ f g -> f o g}
-\end{code}
-
-\begin{code}
 monApp : forall {X} -> Monoid X -> Applicative (\ _ -> X)
 monApp m = record {pure = \ _ -> neutral m ; ap = combine m}
-\end{code}
 
-\begin{code}
 crush : forall {P X F} -> Monoid X -> (P -> X) -> MuJJ F P -> X
 crush m = traverse {B = Zero} (monApp m)
 \end{code}
 
+Endofunctions on a given set form a monoid with respect to
+composition, which allows us a generic |foldr|-style operation.
+\begin{code}
+compMon : forall {X} -> Monoid (X -> X)
+compMon = record {neutral = id ; combine = \ f g -> f o g}
 
+foldr : forall {F A B} -> (A -> B -> B) -> B -> MuJJ F A -> B
+foldr f b t = crush compMon f t b
+\end{code}
+We can use |foldr| to build up |B|s from any structure containing |A|s,
+given a way to `insert' an |A| into a |B|, and an `empty' |B| to start with.
 
 
 \section{The Simple Orderable Universe}
@@ -989,19 +1009,51 @@ structure which ensures that pivots alternate with leaves bearing the
 evidence the pivots are correctly placed with respect to their
 immediate neighbours.
 
+%if False
+\begin{code}
+module BinarySearchTreeGen
+  {P : Set}(L : REL P)(owoto : forall x y -> L x y + L y x) where
+\end{code}
+%endif
+
+Let us check that we are where we were, so to speak.
+Hence we can rebuild our binary search tree insertion for an element
+in the corresponding interval:
+\begin{code}
+  insert2 :  forall {l u} -> MuOSO qIntervalSO L l u ->
+             MuOSO qTreeSO L l u -> MuOSO qTreeSO L l u
+  insert2 la _ \\ y \\ _ ra la inl _ ra = la inr (la inl ! ra \\ y \\ la inl ! ra) ra
+  insert2 la _ \\ y \\ _ ra la inr (lt \\ p \\ rt) ra with owoto y p
+  ... | inl _  = la inr (insert2 la ! \\ y \\ ! ra lt \\ p \\ rt) ra
+  ... | inr _  = la inr (lt \\ p \\ insert2 la ! \\ y \\ ! ra rt) ra
+\end{code}
+The constraints on the inserted element are readily expressed via our
+|qIntervalSO| type, but at no point need we ever name the ordering
+evidence involved. The |owoto| test brings just enough new evidence into
+scope that all proof obligations on the right-hand side can be
+discharged by search of assumptions. We can now make a search tree from any
+input container.
+%format makeTree = "\F{makeTree}"
+\begin{code}
+  makeTree : forall {F} -> MuJJ F P -> MuOSO qTreeSO L bot top
+  makeTree = foldr (\ p -> insert2 la ! \\ p \\ ! ra) la inl ! ra
+\end{code}
+
 
 \section{Digression: Merging Monoidally}
+
 
 %format $>+ = "\!\F{^{+}}"
 %format <$_$>+ = "\_" $>+
 %format mergeSO = "\F{merge}"
-Let us name our family of ordered lists |<$ L $>+|, as the leaves form
-a nonempty chain of |<$ L $>F| ordering evidence.
+Let us name our family of ordered lists |<$ L $>+|, as the
+leaves form a nonempty chain of |<$ L $>F| ordering evidence.
 
 \begin{code}
 <$_$>+ : forall {P} -> REL P -> REL <$ P $>D
 <$ L $>+ = MuOSO qListSO L
 \end{code}
+
 
 The next section addresses the issue of how to \emph{flatten} ordered
 structures to ordered lists, but let us first consider how to
@@ -1094,8 +1146,7 @@ build up trees by a monoidal |crush|, obtaining an efficient generic sort for
 any container in the |JJ| universe.
 \begin{code}
   mergeSort : forall {F} -> MuJJ F P -> <$ L $>+ bot top
-  mergeSort xs =
-    mergeJJ (crush compMon twistIn xs la inl (inl it) ra)
+  mergeSort = mergeJJ o foldr twistIn la inl (inl it) ra
 \end{code}
 
 
@@ -1152,7 +1203,7 @@ sandwich p la inr (_ \\ x \\ xs) ra  ys = la inr (! \\ x \\ sandwich p xs ys) ra
 
 %format flattenT = "\F{flatten}"
 %format flattenOSO = "\F{flatten}^\le_{" SO "}"
-We are now ready to flatten trees, and thence any ordered
+We are now ready to flatten trees, thence any ordered
 structure: 
 
 \begin{code}
@@ -1431,6 +1482,136 @@ q23TIO : Nat -> IO Nat
 q23TIO ze      = q1
 q23TIO (su n)  = qR n q^ (qR n q+ (qR n q^ qR n))
 \end{code}
+When we map a 2-3 tree of height $n$ back to binary trees, we get a
+tree whose left spine has length $n$ and whose right spine has a length
+between $n$ and $2n$.
+
+Insertion is quite similar to binary search tree insertion, except that
+it can have the impact of increasing height. The worst that can happen
+is that the resulting tree is too tall but has just one pivot at the root.
+Indeed, we need this extra wiggle room immediately for the base case!
+%if False
+\begin{code}
+module Tree23
+  {P : Set}(L : REL P)(owoto : forall x y -> L x y + L y x) where
+\end{code}
+%endif
+%format ins23 = "\F{ins23}"
+\begin{code}
+  ins23 :  forall n {l u} -> MuIO qIntervalIO L it l u -> MuIO q23TIO L n l u ->
+           MuIO q23TIO L n l u +
+           Sg P \ p -> MuIO q23TIO L n l (tb p) * MuIO q23TIO L n (tb p) u
+  ins23 ze      la _ \\ y \\ _ ra la _ ra = inr (la ! ra \\ y \\ la ! ra)
+\end{code}
+In the step case, we must find our way to the appropriate subtree by
+suitable use of comparison.
+\begin{spec}
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ rest ra with owoto y p
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ rest ra
+    | inl _  =   (HOLE 0)
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inl rt ra
+    | inr x  =   (HOLE 1)
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
+    | inr x with owoto y q
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
+    | inr x  |   inl _  = (HOLE 2)
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
+    | inr x  |   inr _  = (HOLE 3)
+\end{spec}
+Our |(HOLE 0)| covers the case where the new element belongs in the
+left subtree of either a 2- or 3-node; (HOLE 1) handles the right
+subtree of a 2-node; (HOLE 2) and (HOLE 3) handle middle and right subtrees
+of a 3-node after a further comparison. Note that we inspect |rest| only
+after we have checked the result of the first comparison, making real
+use of the way the |with| construct brings more data to the case analysis but
+keeps the existing patterns open to further refinement, a need foreseen by
+the construct's designers \cite{conor.james:viewfromleft}.
+
+Once we have identified the appropriate subtree, we can make the recursive
+call. If we are lucky, the result will plug straight back into the same hole.
+Here is the case for the left subtree.
+%if False
+\begin{code}
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ rest ra with owoto y p
+\end{code}
+%endif
+\begin{code}
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ rest ra
+    | inl _  with ins23 n la ! \\ y \\ ! ra lt
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ rest ra
+    | inl _  | inl lt'                = inl la lt' \\ p \\ rest ra
+\end{code}
+However, if we are unlucky, the result of the recursive call is too big.
+If the top node was a 2-node, we can accommodate the extra data by returning
+a 3-node. Otherwise, we must rebalance and pass the `too big' problem upward.
+Again, we gain from delaying the inspection of |rest| until we are sure
+reconfiguration will be needed.
+\begin{code}
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inl rt ra
+    | inl _  | inr (llt \\ r \\ lrt)
+    = inl la llt \\ r \\ inr (lrt \\ p \\ rt) ra
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
+    | inl _  | inr (llt \\ r \\ lrt)
+    = inr (la llt \\ r \\ inl lrt ra \\ p \\ la mt \\ q \\ inl rt ra)
+\end{code}
+For the |(HOLE 1)| problems, the top 2-node can always accept the
+result of the recursive call somehow, and the choice offered by the
+return type conveniently matches the node-arity choice, right of the
+pivot.
+%if False
+\begin{code}
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inl rt ra
+    | inr x  with ins23 n la ! \\ y \\ ! ra rt
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inl rt ra
+    | inr x  | rt' = inl la lt \\ p \\ rt' ra
+\end{code}
+%endif
+%if False
+\begin{code}
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
+    | inr x  with owoto y q
+\end{code}
+%endif
+For completeness, I give the middle and right cases for 3-nodes,
+but it is just as on the left.
+\begin{code}
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
+    | inr x  |   inl _  with ins23 n la ! \\ y \\ ! ra mt
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
+    | inr x  |   inl _  | inl mt' = inl la lt \\ p \\ inr (mt' \\ q \\ rt) ra
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
+    | inr x  |   inl _  | inr (mlt \\ r \\ mrt)
+    = inr (la lt \\ p \\ inl mlt ra \\ r \\ la mrt \\ q \\ inl rt ra)
+
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
+    | inr x  |   inr _  with ins23 n la ! \\ y \\ ! ra rt
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
+    | inr x  |   inr _  | inl rt' = inl la lt \\ p \\ inr (mt \\ q \\ rt') ra
+  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
+    | inr x  |   inr _  | inr (rlt \\ r \\ rrt)
+    = inr (la lt \\ p \\ inl mt ra \\ q \\ la rlt \\ r \\ inl rrt ra)
+\end{code}
+
+To complete the efficient sorting algorithm based on 2-3 trees, we can
+use a |Sg|-type to hide the height data, giving us a type which
+admits iterative construction.
+%format T23 = "\F{T23}"
+%format sort = "\F{sort}"
+\begin{code}
+  T23 = Sg Nat \ n -> MuIO q23TIO L n bot top
+
+  insert2 : P -> T23 -> T23
+  insert2 p (n / t) with ins23 n la _ \\ p \\ _ ra t
+  ... | inl t'               = n     / t'
+  ... | inr (lt \\ r \\ rt)  = su n  / la lt \\ r \\ inl rt ra
+
+  sort : forall {F} -> MuJJ F P -> MuIO qListIO L it bot top
+  sort = flattenIO o snd o foldr insert2 (ze / la _ ra)
+\end{code}
+
+
+\section{Discussion}
+
 
 \bibliographystyle{plainnat} % basic style, author-year citations
 \bibliography{Ornament} % name your BibTeX data base
