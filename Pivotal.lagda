@@ -229,6 +229,9 @@ _o_ : {A : Set}{B : A -> Set}{C : (a : A) -> B a -> Set}
       (f : {a : A}(b : B a) -> C a b)(g : (a : A) -> B a) ->
       (a : A) -> C a (g a)
 (f o g) x = f (g x)
+
+id : {A : Set} -> A -> A
+id a = a
 \end{code}
 
 
@@ -760,6 +763,63 @@ The |qR| stands for `recursive substructure' and the |qP| stands for
 `tie the knot' in |MuJJ F P|, we replace interpret |F|'s |qP|s by some
 actual |P| and its |qR|s by |MuJJ F P|.
 
+%format Applicative = "\D{Applicative}"
+%format Monoid = "\D{Monoid}"
+%format pure = "\F{pure}"
+%format ap = "\F{ap}"
+%format neutral = "\F{neutral}"
+%format combine = "\F{combine}"
+%format traverse = "\F{traverse}"
+%format crush = "\F{crush}"
+%format compMon = "\F{compMon}"
+
+\begin{code}
+record Applicative (H : Set -> Set) : Set1 where
+  field
+    pure  : forall {X} -> X -> H X
+    ap    : forall {S T} -> H (S -> T) -> H S -> H T
+open Applicative
+\end{code}
+
+\begin{code}
+traverse : forall {H F A B} -> Applicative H -> (A -> H B) ->
+           MuJJ F A -> H (MuJJ F B)
+traverse {H}{F}{A}{B} AH h t = go qR t where
+  pu = pure AH ; _<*>_ = ap AH
+  go : forall G -> <! G !>JJ (MuJJ F A) A -> H (<! G !>JJ (MuJJ F B) B)
+  go qR        la t ra  = pu la_ra <*> go F t
+  go qP        a        = h a
+  go q1        it       = pu it
+  go (S q+ T)  (inl s)  = pu inl <*> go S s
+  go (S q+ T)  (inr t)  = pu inr <*> go T t
+  go (S q* T)  (s / t)  = (pu _/_ <*> go S s) <*> go T t
+\end{code}
+
+\begin{code}
+record Monoid (X : Set) : Set where
+  field
+    neutral : X
+    combine : X -> X -> X
+open Monoid
+\end{code}
+
+\begin{code}
+compMon : forall {X} -> Monoid (X -> X)
+compMon = record {neutral = id ; combine = \ f g -> f o g}
+\end{code}
+
+\begin{code}
+monApp : forall {X} -> Monoid X -> Applicative (\ _ -> X)
+monApp m = record {pure = \ _ -> neutral m ; ap = combine m}
+\end{code}
+
+\begin{code}
+crush : forall {P X F} -> Monoid X -> (P -> X) -> MuJJ F P -> X
+crush m = traverse {B = Zero} (monApp m)
+\end{code}
+
+
+
 
 \section{The Simple Orderable Universe}
 
@@ -930,11 +990,11 @@ evidence the pivots are correctly placed with respect to their
 immediate neighbours.
 
 
-\section{Flattening With Concatenation}
+\section{Digression: Merging Monoidally}
 
 %format $>+ = "\!\F{^{+}}"
-If we are in the sorting business, whatever intermediate data structures
-we might choose, we shall want to deliver some kind of list in the end.
+%format <$_$>+ = "\_" $>+
+%format mergeSO = "\F{merge}"
 Let us name our family of ordered lists |<$ L $>+|, as the leaves form
 a nonempty chain of |<$ L $>F| ordering evidence.
 
@@ -943,6 +1003,107 @@ a nonempty chain of |<$ L $>F| ordering evidence.
 <$ L $>+ = MuOSO qListSO L
 \end{code}
 
+The next section addresses the issue of how to \emph{flatten} ordered
+structures to ordered lists, but let us first consider how to
+\emph{merge} them. Merging sorts differ from flattening sorts in that
+order is introduced when `conquering' rather than `dividing'.
+
+We can be sure that whenever two ordered lists share lower and upper bounds,
+they can be merged within the same bounds. Again, let us assume a type
+|P| of pivots, with |owoto| witnessing the totality of order |L|.
+%format mergeNO = "\F{merge}"
+%if False
+\begin{code}
+module MergeSO
+  {P : Set}(L : REL P)(owoto : forall x y -> L x y + L y x) where
+\end{code}
+%endif
+The familiar definition of |mergeNO| typechecks but falls just
+outside the class of lexicographic recursions accepted by Agda's termination
+checker.
+\begin{spec}
+  mergeNO : forall {l u} -> <$ L $>+ l u -> <$ L $>+ l u -> <$ L $>+ l u
+  mergeNO  la inl _ ra               ys                        = ys
+  mergeNO  xs                        la inl _ ra               = xs  
+  mergeNO  la inr ((BROWN _) \\ x \\ xs) ra  la inr (_ \\ y \\ ys) ra  with owoto x y
+  ... | inl _  = la inr (! \\ x \\ mergeNO xs la inr (! \\ y \\ ys) ra) ra 
+  ... | inr _  = la inr (! \\ y \\ mergeNO la inr ((BROWN !) \\ x \\ xs) ra ys) ra
+\end{spec}
+In one step case, the first list gets smaller, but in the other,
+where we decrease the second list, the first does not remain the
+same: it contains fresh evidence that |x| is above the tighter lower bound, |y|.
+Separating the recursion on the second list is sufficient to show that both
+recursions are structural.
+
+\begin{code}
+  mergeSO : forall {l u} -> <$ L $>+ l u -> <$ L $>+ l u -> <$ L $>+ l u
+  mergeSO         la inl _ ra               = \ ys -> ys
+  mergeSO {l}{u}  la inr (_ \\ x \\ xs) ra  = go where
+    go :  forall {l}{{_ : <$ L $>F l (tb x)}} ->
+            <$ L $>+ l u -> <$ L $>+ l u
+    go la inl _ ra               = la inr (! \\ x \\ xs) ra
+    go la inr (_ \\ y \\ ys) ra  with owoto x y
+    ... | inl _  = la inr (! \\ x \\ mergeSO xs la inr (! \\ y \\ ys) ra) ra 
+    ... | inr _  = la inr (! \\ y \\ go ys) ra
+\end{code}
+The helper function, |go| inserts |x| at its
+rightful place in the second list, then resumes merging with |xs|.
+
+Merging equips ordered lists with monoidal structure.
+%format olistMon = "\F{olMon}"
+\begin{code}
+  olistMon : forall {l u}{{_ : <$ L $>F l u}} -> Monoid (<$ L $>+ l u)
+  olistMon = record {neutral = la inl ! ra ; combine = mergeSO}
+\end{code}
+
+An immediate consequence is that we gain a family of sorting algorithms
+which amount to depth-first merging of a given intermediate data structure,
+making a singleton from each pivot.
+%format mergeJJ = mergeSO "_{" JJ "}"
+\begin{code}
+  mergeJJ : forall {F} -> MuJJ F P -> <$ L $>+ bot top
+  mergeJJ = crush olistMon \ p -> la inr (_ \\ p \\ la inl _ ra) ra
+\end{code}
+
+%format mergeSort = "\F{mergeSort}"
+The instance of |mergeJJ| for \emph{lists} is exactly \emph{insertion} sort:
+at each cons, the singleton list of the head is merged with the sorted tail.
+To obtain an efficient |mergeSort|, we should arrange the inputs as
+a leaf-labelled binary tree.
+
+%format qLTree = "\F{`qLTree}"
+%format twistIn = "\F{twistIn}"
+\begin{code}
+  qLTree : JJ
+  qLTree = (q1 q+ qP) q+ qR q* qR
+\end{code}
+
+We can add each successive elements to the tree with a twisting insertion,
+placing the new element at the bottom of the left spine, but swapping the
+subtrees at each layer along the way to ensure fair distribution.
+
+\begin{code}
+  twistIn : P -> MuJJ qLTree P -> MuJJ qLTree P
+  twistIn p la inl (inl it) ra  = la inl (inr p) ra
+  twistIn p la inl (inr q) ra   = la inr (la inl (inr p) ra / la inl (inr q) ra) ra
+  twistIn p la inr (l / r) ra   = la inr (twistIn p r / l) ra
+\end{code}
+
+If we notice that |twistIn| maps elements to endofunctions on trees, we can
+build up trees by a monoidal |crush|, obtaining an efficient generic sort for
+any container in the |JJ| universe.
+\begin{code}
+  mergeSort : forall {F} -> MuJJ F P -> <$ L $>+ bot top
+  mergeSort xs =
+    mergeJJ (crush compMon twistIn xs la inl (inl it) ra)
+\end{code}
+
+
+
+\section{Flattening With Concatenation}
+
+Several sorting algorithms amount to building an ordered intermediate structure,
+then flattening it to an ordered list.
 As all of our orderable structures amount to trees, it suffices to flatten
 trees to lists. Let us take the usual na{\"\i}ve approach as our starting
 point. In Haskell, we might write
