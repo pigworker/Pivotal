@@ -41,6 +41,8 @@ cond0 : {P : Two -> Set0} -> P tt -> P ff -> (b : Two) -> P b
 cond0 t f tt = t
 cond0 t f ff = f
 
+data _==_ {X : Set}(x : X) : X -> Set where
+  refl : x == x
 
 data U (I : Set) : Set where
   `Rec : (i : I) -> U I
@@ -100,6 +102,96 @@ data TB (X : Set) : Set where
 data Muo {I X : Set}(F : I -> U I)(L : X -> X -> Set)
          (i : I)(l u : TB X) : Set where
   <_> : [ F i ]o L (Muo F L) l u -> Muo F L i l u
+
+data Der (I X : Set) : Set1 where
+  ll : (TB X -> TB X -> Set) -> Der I X
+  rr : (I -> TB X -> TB X -> Set) -> Der I X
+
+[_]d1 : forall {I X} -> U I -> (X -> X -> Set) ->
+         (I -> U I) -> (TB X -> TB X -> Set) -> TB X -> TB X -> Set
+[ `Rec i ]d1  L F H l u = Zero
+[ `0 ]d1      L F H l u = Zero
+[ `1 ]d1      L F H l u = #[ L ] l u * H l u
+[ S `+ T ]d1  L F H l u = [ S ]d1 L F H l u + [ T ]d1 L F H l u
+[ S `^ T ]d1  L F H l u = Ex \ x ->
+  [ S ]d1 L F H l (# x) * [ T ]o L (Muo F L)  (# x) u   +
+  [ S ]o L (Muo F L) l (# x) * [ T ]d1 L F H (# x) u
+
+[_]dr : forall {I X} -> U I -> (X -> X -> Set) ->
+         (I -> U I) -> (I -> TB X -> TB X -> Set) -> TB X -> TB X -> Set
+[ `Rec i ]dr  L F H l u = H i l u
+[ `0 ]dr      L F H l u = Zero
+[ `1 ]dr      L F H l u = Zero
+[ S `+ T ]dr  L F H l u = [ S ]dr L F H l u + [ T ]dr L F H l u
+[ S `^ T ]dr  L F H l u = Ex \ x ->
+  [ S ]dr L F H l (# x) * [ T ]o L (Muo F L)  (# x) u   +
+  [ S ]o L (Muo F L) l (# x) * [ T ]dr L F H (# x) u
+
+data Muz {I X : Set}(F : I -> U I)(L : X -> X -> Set)
+         (H : TB X -> TB X -> Set)(i : I)(l u : TB X) : Set where
+  <_> : [ F i ]dr L F (Muz F L H) l u -> Muz F L H i l u
+  ><_>< : [ F i ]d1 L F H l u -> Muz F L H i l u
+
+plug :  forall {I X F}{L : X -> X -> Set}{H}{i : I}{l u} ->
+        Muz F L H i l u -> Muo F L i l u
+plug {I}{X}{F}{L}{H}{i} < x > = < plugr (F i) x > where
+  plugr : forall G {l u} -> [ G ]dr L F (Muz F L H) l u -> [ G ]o L (Muo F L) l u
+  plugr (`Rec i) d = plug d
+  plugr `0 ()
+  plugr `1 ()
+  plugr (S `+ T) (tt , d) = tt , plugr S d
+  plugr (S `+ T) (ff , d) = ff , plugr T d
+  plugr (S `^ T) (p , tt , d , t) = p , plugr S d , t
+  plugr (S `^ T) (p , ff , s , d) = p , s , plugr T d
+plug {I}{X}{F}{L}{H}{i} >< x >< = < plug1 (F i) x > where
+  plug1 : forall G {l u} -> [ G ]d1 L F H l u -> [ G ]o L (Muo F L) l u
+  plug1 (`Rec i) ()
+  plug1 `0 ()
+  plug1 `1 (l , _) = l
+  plug1 (S `+ T) (tt , d) = tt , plug1 S d
+  plug1 (S `+ T) (ff , d) = ff , plug1 T d
+  plug1 (S `^ T) (p , tt , d , t) = p , plug1 S d , t
+  plug1 (S `^ T) (p , ff , s , d) = p , s , plug1 T d
+
+In : forall {X}(L : X -> X -> Set)(x : X)(l u : TB X) -> Set
+In L x l u = #[ L ] l (# x) * #[ L ] (# x) u
+
+data Find {I X F}{L : X -> X -> Set}{i : I}{l u}(x : X) : Muo F L i l u -> Set where
+  found : (d : Muz F L (In L x) i l u) ->
+           Find x (plug d)
+
+{-
+find : forall {I X F}{L : X -> X -> Set}{i : I}{l u}(x : X) ->
+       In L x l u -> (t : Muo F L i l u) -> Find x t
+find {I}{X}{F}{L}{i} x lxu < t > = {!!}
+  help : forall G {l u} -> In L x l u ->
+         (t : [ G ]o L (Muo F L) l u) ->
+           (Sg ([ G ]d1 L (Muo F L) (In L X)) \ d -> t == plug
+-}
+
+
+Leaf : forall {I X} -> U I -> (X -> X -> Set) ->
+         (I -> TB X -> TB X -> Set) -> (TB X -> TB X -> Set) ->
+         TB X -> TB X -> Set
+Leaf (`Rec i)  L R F l u = Zero
+Leaf `0        L R F l u = Zero
+Leaf `1        L R F l u = #[ L ] l u * F l u
+Leaf (S `+ T)  L R F l u = Leaf S L R F l u + Leaf T L R F l u
+Leaf (S `^ T)  L R F l u = Ex \ x ->
+  Leaf S L R F l (# x) * [ T ]o L R  (# x) u +
+  [ S ]o L R l (# x) * Leaf T L R F (# x) u
+
+mkLeaf : forall {I X}(T : U I)(L : X -> X -> Set)
+         (R : I -> TB X -> TB X -> Set)(F : TB X -> TB X -> Set) ->
+         (l u : TB X) ->
+         Leaf T L R F l u -> [ T ]o L R l u
+mkLeaf (`Rec i) L R F l u ()
+mkLeaf `0 L R F l u ()
+mkLeaf `1 L R F l u (fst , snd) = fst
+mkLeaf (S `+ T) L R F l u (tt , s) = tt , mkLeaf S L R F l u s
+mkLeaf (S `+ T) L R F l u (ff , t) = ff , mkLeaf T L R F l u t
+mkLeaf (S `^ T) L R F l u (p , tt , s , t) = p , mkLeaf S L R F _ _ s , t
+mkLeaf (S `^ T) L R F l u (p , ff , s , t) = p , s , mkLeaf T L R F _ _ t
 
 intv : forall {X}{L : X -> X -> Set}{l u} -> Muo INTV L <> l u -> X
 intv < x , _ , _ > = x

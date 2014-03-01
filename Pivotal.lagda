@@ -88,7 +88,22 @@
 \begin{document}
 \maketitle
 
-\begin{abstract} 
+\begin{abstract}
+I present a datatype-generic treatment of recursive container
+types whose elements are guaranteed to be stored in increasing order,
+with the ordering invariant rolled out systematically. Intervals, lists and
+binary search trees are instances of the generic treatment.
+On the journey to this treatment, I report a variety of failed experiments
+and the transferable learning experiences they triggered. I demonstrate that
+a \emph{total} element ordering is enough to deliver insertion and
+flattening algorithms, and show that (with care about the formulation of the
+types) the implementations remain as usual. Agda's \emph{instance arguments} and
+\emph{pattern synonyms} maximize the proof search done by the typechecker and
+minimize the appearance of proofs in program text, often eradicating them
+entirely. Generalizing to indexed recursive container types, invariants such as
+\emph{size} and \emph{balance} can be expressed in addition to \emph{ordering}.
+By way of example, I implement insertion and deletion for 2-3 trees, ensuring
+both order and balance by the discipline of type checking.
 \end{abstract}
 
 %if False
@@ -96,22 +111,12 @@
 
 module Pivotal where
 
-data Nat : Set where
-  ze : Nat
-  su : Nat -> Nat
-
-{-# BUILTIN NATURAL Nat #-}
-{-# BUILTIN ZERO ze #-}
-{-# BUILTIN SUC su #-}
-
-postulate BROWN : {X Y : Set} -> X -> Y
-postulate HOLE : {X : Set} -> Nat -> X
-postulate FOOL : {X Y : Set} -> Y -> X -> Y
-
 \end{code}
 %endif
 %format (HOLE n) = "\yellowBG{\(?_{" n "}\)}"
 %format (BROWN x) = "\brownBG{\(" x "\)}"
+%format (LIE p (x)) = "\brownBG{\(" x "\)}"
+%format (YELLOW x) = "\yellowBG{\(" x "\)}"
 %format (FOOL y x) = y
 %format -> = "\rightarrow"
 
@@ -128,8 +133,6 @@ abstractions. Correspondingly, let us construct a \emph{universe} of
 container-like datatypes ensuring that elements are in increasing
 order, good for intervals, ordered lists, binary search trees, and
 more besides.
-
-\section{Preliminaries}
 
 %format id = "\F{id}"
 %format pattern = "\mathkw{pattern}"
@@ -166,19 +169,89 @@ more besides.
 %format if_then_else_ = if "\_" then "\_" else "\_"
 %format Nat = "\D{\mathbb{N}}"
 %format ze = "\C{0}"
-%format su = "\C{suc}"
-%format >> = "\D{\dot{\rightarrow}}"
+%format su = "\C{s}"
+%format >> = "\F{\dot{\rightarrow}}"
 %format _>>_ = "\_\!" >> "\!\_"
+%format == = "\D{\equiv}"
+%format _==_ = "\_\!" == "\!\_"
+
+
+\section{How to Hide the Truth}
+
+If we intend to enforce invariants, we shall need to mix a little bit of
+logic in with our types and a little bit of proof in with our programming.
+It is worth taking some trouble to set up our logical apparatus to maximize
+the effort we can get from the computer and to minimize the textual cost
+of proofs. We should prefer to encounter logic only when it is dangerously
+absent!
+
+Our basic tools are the types representing falsity and truth by virtue of
+their number of inhabitants:
 
 \begin{code}
-data Zero : Set where
-
-record One : Set where constructor it
+data Zero : Set where                  -- no constructors!
+record One : Set where constructor it  -- no fields!
 \end{code}
+
+Dependent types allow us to compute sets from data. E.g., we can
+represent evidence for the truth of some Boolean expression which we might
+have tested.
 
 \begin{code}
 data Two : Set where tt ff : Two
+
+So : Two -> Set
+So tt  = One
+So ff  = Zero
 \end{code}
+
+A set |P| which can evaluate either to |Zero| or to |One| might be
+thought of as `propositional' in the sense that we are unlikely to
+want to \emph{distinguish} its inhabitants. Correspondingly, we might
+prefer not even to \emph{see} its inhabitants. We may define a wrapper
+type for such propositions whose sole purpose is to hide their proofs.
+
+%format <P = "\D{\ulcorner}\!\!"
+%format P> = "\!\!\D{\urcorner}"
+%format <P_P> = <P _ P>
+%format prf = "\F{prf}"
+%format ! = "\C{!}"
+\begin{code}
+record <P_P> (P : Set) : Set where
+  constructor !
+  field
+    {{prf}} : P
+\end{code}
+
+Agda uses braces to indicate that an argument or field is to be
+suppressed by default in program texts and inferred somehow by the
+typechecker. Single-braced variables are solved by unification, in the
+tradition of Milner. The doubled braces indicate \emph{instance arguments},
+which are inferred by \emph{contextual search}: if there is just one candidate
+hypothesis which can take the place of an instance argument, it is silently
+filled in, allowing us a tiny bit of proof automation.
+If an inhabitant of |<P So b P>| is required, we may write |!| to
+indicate that we expect the truth of |b| to be known.
+
+Careful positioning of instance arguments seeds the context with useful
+information. We may hypothesize over them quietly:
+%format => = "\F{\Rightarrow}"
+%format _=>_ = _ => _
+%format :- = "\F{\therefore}"
+%format _:-_ = _ :- _
+\begin{code}
+_=>_ : Set -> Set -> Set
+P => T = {{p : P}} -> T
+infixr 3 _=>_
+\end{code}
+Forward reasoning can then be supported by a `therefore' operator.
+\begin{code}
+_:-_ : forall {P T} -> <P P P> -> (P => T) -> T
+! :- t = t
+\end{code}
+
+This apparatus can give the traditional conditional a subtly more
+informative type, thus:
 
 \begin{code}
 not : Two -> Two
@@ -187,49 +260,53 @@ not ff  = tt
 \end{code}
 
 \begin{code}
-if_then_else_ : {X : Set} -> Two -> X -> X -> X
+if_then_else_ :  {X : Set}(b : Two) ->
+                 (So b => X) -> (So (not b) => X) -> X
 if tt  then t else f = t
 if ff  then t else f = f
 infix 1 if_then_else_
 \end{code}
 
+If ever there is a proof of |Zero| in the context, we should be able to
+ask for anything we want. Let us define
+%format magic = "\F{magic}"
 \begin{code}
-So : Two -> Set
-So tt  = One
-So ff  = Zero
+magic :  {X : Set} -> Zero => X
+magic {{()}}
+\end{code}
+using Agda's \emph{absurd pattern} to mark the impossible instance argument
+which shows that no value need be returned. E.g., we may write
+%format test = "\F{test}"
+\begin{code}
+test : Two
+test = if tt then ff else magic
+\end{code}
+
+Instance arguments are not a perfect fit for proof search: they were intended
+as a cheap alternative to type classes, hence the requirement for exactly
+one candidate instance. For proofs we might prefer to be less fussy about
+redundancy, but we shall manage perfectly well for the purposes of this paper.
+
+
+%\section{A Dump of Setting Up}
+
+
+%if False
+\begin{code}
+data Nat : Set where
+  ze : Nat
+  su : Nat -> Nat
 \end{code}
 
 \begin{code}
-data _+_ (S T : Set) : Set where
-  inl : S -> S + T
-  inr : T -> S + T
-infixr 4 _+_
-\end{code}
+{-# BUILTIN NATURAL Nat #-}
+{-# BUILTIN ZERO ze #-}
+{-# BUILTIN SUC su #-}
 
-\begin{code}
-data Maybe (X : Set) : Set where
-  yes  : X -> Maybe X
-  no   : Maybe X
-\end{code}
-
-\begin{code}
-so : forall {X} -> Two -> Maybe X -> Maybe X
-so tt  mx  = mx
-so ff  _   = no
-\end{code}
-
-\begin{code}
-record Sg (S : Set)(T : S -> Set) : Set where
-  constructor _/_
-  field
-    fst : S
-    snd : T fst
-open Sg
-infixr 5 _/_
-
-_*_ : Set -> Set -> Set
-S * T = Sg S \ _ -> T
-infixr 5 _*_
+postulate BROWN : {X Y : Set} -> X -> Y
+postulate LIE : (P : Set){X : Set} -> (P => X) -> X
+postulate HOLE : {X : Set} -> Nat -> X
+postulate FOOL : {X Y : Set} -> Y -> X -> Y
 
 _o_ : {A : Set}{B : A -> Set}{C : (a : A) -> B a -> Set}
       (f : {a : A}(b : B a) -> C a b)(g : (a : A) -> B a) ->
@@ -239,17 +316,13 @@ infixr 3 _o_
 
 id : {A : Set} -> A -> A
 id a = a
-
-_>>_ : {I : Set} -> (I -> Set) -> (I -> Set) -> I -> Set
-(F >> G) i = F i -> G i
-infixr 2 _>>_
-
-[_] : {I : Set} -> (I -> Set) -> Set
-[ F ] = forall {i} -> F i
 \end{code}
+%endif
 
 
-\section{Searching for Search Trees (and Barking up the Wrong One)}
+
+
+\section{Barking Up the Wrong Search Trees}
 
 %if False
 \begin{code}
@@ -302,7 +375,7 @@ tree to tell us its extreme elements (or that it is empty).
 %format BST = "\D{BST}"
 %format STRange = "\D{STRange}"
 %format empty = "\C{\emptyset}"
-%format - = "\!\C{{}-}\!"
+%format - = "\!\C{{}- }\!"
 %format _-_ = "\_" - "\_"
 \begin{code}
   data STRange : Set where
@@ -312,20 +385,34 @@ tree to tell us its extreme elements (or that it is empty).
 \end{code}
 
 \paragraph{From checking the invariant to enforcing it.}
+%format valid = "\F{valid}"
+%format ?> = "\F{?\rangle}"
+%format _?>_ = _ ?> _
 Assuming we can test the order on |P| with some |le : P -> P -> Two|,
 we could write a recursive function to check whether a |TrS| is a valid
-search tree and compute its range:
+search tree and compute its range if it has one. Of course, we must
+account for the possibility of invalidity, so let us admit failure in
+the customary manner.
+\begin{code}
+  data Maybe (X : Set) : Set where
+    yes  : X -> Maybe X
+    no   : Maybe X
 
-%format valid = "\F{valid}"
+  _?>_ : forall {X} -> Two -> Maybe X -> Maybe X
+  b  ?> mx  = if b then mx else no
+  infixr 4 _?>_
+\end{code}
+The guarding operator |?>| allows us to attach a Boolean test.
+We may now |valid|ate the range of a |TrS|.
 \begin{code}
   valid : TrS -> Maybe STRange
   valid lfS = yes empty
   valid (ndS l p r) with valid l | valid r
   ... | yes empty    | yes empty    = yes (p - p)
-  ... | yes empty    | yes (c - d)  = so (le p c) (yes (p - d))
-  ... | yes (a - b)  | yes empty    = so (le b p) (yes (a - p))
+  ... | yes empty    | yes (c - d)  = le p c ?> yes (p - d)
+  ... | yes (a - b)  | yes empty    = le b p ?> yes (a - p)
   ... | yes (a - b)  | yes (c - d)
-    = so (le b p) (so (le p c) (yes (a - d)))
+    = le b p ?> le p c ?> yes (a - d)
   ... | _            | _            = no
 \end{code}
 
@@ -359,20 +446,12 @@ check and the means to compute the output range if successful.
 \end{code}
 
 We thus obtain the following refinement from |TrS| to |BST|:
-
 \begin{code}
   data BST : STRange -> Set where
     lfS  :  BST empty
     ndS  :  forall {l r} -> BST l -> (p : P) -> BST r ->
-            {_ : So (leftOK l p)} -> {_ : So (rightOK p r)} ->
-            BST (nodeRange l p r)
+      So (leftOK l p) => So (rightOK p r) => BST (nodeRange l p r)
 \end{code}
-
-The |So| function maps |tt| to |One| and |ff| to |Zero|, requiring
-that the tests on left and right ranges succeed. When a test passes,
-Agda can infer the value |it|, hence we may safely leave this evidence
-implicit. If a test fails, Agda will complain that it cannot
-synthesize the implicit argument, for a very good reason!
 
 \paragraph{Attempting to implement insertion.}
 Now that each binary search tree tells us its type, can we implement
@@ -411,11 +490,11 @@ and |rt : BST r| for some ranges |l| and |r|. The |then| branch delivers
 a |BST (nodeRange (oRange l y) p r)|, but the type required is
 |BST (oRange (nodeRange l p r) y)|, so we need some theorem-proving to
 fix the types, let alone to discharge the
-obligation |So (leftOK (oRange l y) p)|. Of course, we could plough on,
-despite the slough of proof, and force this definition through, but I
-have had enough and so have you!
+obligation |So (leftOK (oRange l y) p)|. We could plough on
+with proof and, coughing, push this definition through, but tough work ought to
+make us ponder if we might have thought askew.
 
-We have written a datatype definition which is logically correct but
+We have defined a datatype which is logically correct but
 which is pragmatically disastrous. Is it thus inevitable that all
 datatype definitions which enforce the ordering invariant will be
 pragmatically disastrous? Or are there lessons we can learn about
@@ -485,22 +564,32 @@ each node, we can require that the pivot falls in the interval, then use the
 pivot to bound the subtrees.
 %if False
 \begin{code}
-module BinarySearchTreeBetter (P : Set)(le : P -> P -> Two) where
+module BinarySearchTreeBetter where
+  postulate
+    P : Set
+    le : P -> P -> Two
 \end{code}
 %endif
 %format leaf = "\C{leaf}"
+%format pnode = "\C{pnode}"
 %format node = "\C{node}"
-%format Between = "\F{Between}"
 \begin{code}
   data BST (l u : <$ P $>D) : Set where
-    leaf :  BST l u
-    node :  (p : P) -> So (<$ le $>B l (tb p)) -> So (<$ le $>B (tb p) u) ->
-            BST l (tb p) -> BST (tb p) u -> BST l u
+    leaf   :   BST l u
+    pnode  :  (p : P) -> BST l (tb p) -> BST (tb p) u ->
+      So (<$ le $>B l (tb p)) => So (<$ le $>B (tb p) u) => BST l u
 \end{code}
 In doing so, we eliminate all the `green slime' from the indices of the
 type. The |leaf| constructor now has many types, indicating all its elements
 satisfy any requirements. We also gain |BST bot top| as the general type of
-binary search trees for |P|.
+binary search trees for |P|. Unfortunately, we have been forced to make the
+pivot value |p|, the first argument to |pnode|, as the type of the subtrees
+now depends on it. Luckily, Agda now supports \emph{pattern synonyms}, allowing
+linear macros to abbreviate both patterns on the left and pattern-like
+expressions on the right. We may fix up the picture as follows:
+\begin{code}
+  pattern node lp p pu = pnode p lp pu
+\end{code}
 
 %format insert2 = "\F{insert}"
 Can we implement |insert2| for this definition? We can certainly give it a
@@ -509,74 +598,84 @@ node, we must ensure that it precedes the pivot: that is, we expect
 insertion to \emph{preserve} the bounds of the subtree, and we should already
 know that the new element falls within them.
 \begin{code}
-  insert2 :  forall {l u} y -> So (<$ le $>B l (tb y)) -> So (<$ le $>B (tb y) u) ->
-             BST l u -> BST l u
-  insert2 y ly yu  leaf                = node y ly yu leaf leaf
-  insert2 y ly yu  (node p lp pu lt rt)  =
-    if le y p  then  node p lp pu (insert2 y ly (HOLE 0) lt) rt
-               else  node p lp pu lt (insert2 y (HOLE 1) yu rt)
+  insert2 :  forall {l u} y -> BST l u ->
+    So (<$ le $>B l (tb y)) => So (<$ le $>B (tb y) u) => BST l u
+  insert2 y leaf            = node leaf y leaf
+  insert2 y (node lt p rt)  =
+    if le y p  then  node (insert2 y lt) p rt
+               else  node lt p ((LIE (So (le p y)) (insert2 y rt)))
 \end{code}
 We have no need to repair type errors by theorem proving, and most of
-our proof obligations follow directly from our assumptions. Working
-interactively, we can use Agda's proof search helper, Agsy, to fill them
-in for us. Our only outstanding goals are
-\begin{spec}
-  (HOLE 0)  : So (le y p)  -- in the |then| branch
-  (HOLE 1)  : So (le p y)  -- in the |else| branch
-\end{spec}
-The first of these is the very thing our conditional expression has found
-to be true! We could choose to work with an evidence-producing version of
-|if|.
-%format eif = "\F{if}"
-%format eif_then_else_ = if_then_else_
-\begin{code}
-  eif_then_else_ : forall {X : Set} b ->
-    (So b -> X) -> (So (not b) -> X) -> X
-  eif tt then t else f = t it
-  eif ff then t else f = f it
-\end{code}
-We can now \emph{learn} by testing: the |then| branch has a type which is
-reassuringly distinct from that of the |else| branch, and both are more
-informative than the target type, |X|. We have made a little progress:
-%format insert3 = "\F{insert}"
-%if False
-\begin{code}
-  insert3 :  forall {l u} y -> So (<$ le $>B l (tb y)) -> So (<$ le $>B (tb y) u) ->
-             BST l u -> BST l u
-  insert3 y ly yu  leaf                  = node y ly yu leaf leaf
-\end{code}
-%endif
-\begin{code}
-  insert3 y ly yu  (node p lp pu lt rt)  = eif le y p
-    then  (\ yp -> node p lp pu (insert3 y ly yp lt) rt)
-    else  (\ py -> node p lp pu lt (insert3 y (BROWN py) yu rt))
-\end{code}
-However, we are now defeated by the fact that |py : So (not (le y p))|,
-which is not the evidence we need for |(HOLE 1)|. For any given total ordering,
-we should be able to fix this up by proving a theorem, but this is still more
-work that I enjoy. The trouble is that we couched our definition in terms
-of the truth of bits computed in a particular way, rather than the ordering
-\emph{relation}. Let us now tidy up this detail.
+our proof obligations follow directly from our assumptions. The recursive
+call in the |then| branch requires a proof of |So (le y p)|, but that is
+just the evidence delivered by our evidence-transmitting conditional.
+However, the |else| case snatches defeat from the jaws of victory: the
+recursive call needs a proof of |So (le p y)|, but all we have is a proof
+of |So (not (le y p))|. For any given total ordering,
+we should be able to fix this mismatch up by proving a theorem, but this is
+still more work than I enjoy. The trouble is that we couched our definition
+in terms of the truth of bits computed in a particular way, rather than the
+ordering \emph{relation}. Let us now tidy up this detail.
 
 
 \section{One Way Or The Other}
 
 %format REL = "\F{Rel}"
-%format $>F = "\F{\!\!\!_\bot^\top}"
-%format <$_$>F = "\_" $>F
-%format $>II = "\F{\!\!\!^\bullet}"
-%format <$_$>II = "\_" $>II
+%format ^>P = "\F{\!\!\!\urcorner}"
+%format <^ = "\F{\ulcorner\!\!\!}"
+%format <^_^>P = <^ _ ^>P
+%format $>F = "\F{\!^\top_\bot}"
+%format <$_$>F = _ $>F
+%format $>II = "\D{\!\!\!^\bullet}"
+%format <$_$>II = _ $>II
+%format $>ii = "\C{\!\!\!^\circ}"
+%format <$_$>ii = _ $>ii
+%format ival = "\F{ival}"
+%format ihi = "\F{ihi}"
+%format ilo = "\F{ilo}"
 We can recast our definition in terms of relations---families of sets |REL P|
+indexed by pairs.
+\begin{spec}
+REL : Set -> Set1
+REL P = P * P -> Set
+\end{spec}
+giving us types which directly make statements about elements of |P|, rather
+than about bits.
+
+I must, of course, say how such pairs are defined: the habit of
+dependently typed programmers is to obtain them as the degenerate case
+of dependent pairs: let us have them.
+\begin{code}
+record Sg (S : Set)(T : S -> Set) : Set where
+  constructor _/_
+  field
+    fst : S
+    snd : T fst
+open Sg
+infixr 5 _/_
+
+_*_ : Set -> Set -> Set
+S * T = Sg S \ _ -> T
+infixr 5 _*_
+\end{code}
+%if False
 \begin{code}
 REL : Set -> Set1
 REL P = P * P -> Set
 \end{code}
-giving us types which directly make statements about elements of |P|, rather
-than about bits. Let us suppose we have some `less or equal' ordering relation
-|L : REL P|. For natural numbers, we can define
+%endif
+
+Now, let us suppose we have some `less or equal' ordering relation
+|L : REL P|. Let us introduce the natural numbers by way of example,
 %format Le = "\F{L}_{" Nat "}"
 %format <= = "\F{\le}"
 %format _<=_ = "\_\!" <= "\!\_"
+\begin{spec}
+data Nat : Set where
+  ze : Nat
+  su : Nat -> Nat
+\end{spec}
+and define
 \begin{code}
 Le : REL Nat
 Le (x / y) = x <= y where
@@ -588,58 +687,177 @@ Le (x / y) = x <= y where
 
 The information we shall need just corresponds to the totality
 of |L|: for any given |x| and |y|, |L| must hold \emph{one way or the other}.
-For |Nat|, we may define
+We can use disjoint sum types for that purpose
+%format OWOTO = "\D{OWOTO}"
+%format le = "\C{le}"
+%format ge = "\C{ge}"
+\begin{code}
+data _+_ (S T : Set) : Set where
+  inl : S -> S + T
+  inr : T -> S + T
+infixr 4 _+_
+\end{code}
+allowing us to define
+\begin{code}
+OWOTO : forall {P}(L : REL P) -> REL P
+OWOTO L (x / y) = <P L (x / y) P> + <P L (y / x) P>
+
+pattern le  = inl !
+pattern ge  = inr !
+\end{code}
+I have used pattern synonyms to restore the impression that we are just
+working with a Boolean type, but the |!| serves to unpack evidence when
+we test and to pack it when we inform.
+We shall usually be able to keep silent about
+ordering evidence, even from the point of its introduction.
+For |Nat|, let us have
 %format nowoto = "\F{owoto}"
 \begin{code}
-nowoto : forall x y -> Le (x / y) + Le (y / x)
-nowoto ze      ze      = inl it
-nowoto ze      (su y)  = inl it
-nowoto (su x)  ze      = inr it
+nowoto : forall x y -> OWOTO Le (x / y)
+nowoto ze      y       = le
+nowoto (su x)  ze      = ge
 nowoto (su x)  (su y)  = nowoto x y
 \end{code}
-using only mechanical case-splitting and proof search.
+Note that we speak only of the crucial bit of information. 
+Moreover, we especially benefit from type-level computation in the step case:
+|OWOTO Le (su x / su y)| is the very same type as |OWOTO Le (x / y)|.
 
-Any such ordering relation on elements lifts readily to bounds.
+Any ordering relation on elements lifts readily to bounds. Let us take the
+opportunity to add propositional wrapping, to help us hide ordering proofs.
 \begin{code}
-<$_$>F : forall {P} -> REL P -> REL <$ P $>D
-<$ L $>F (_     /  top)   = One
-<$ L $>F (tb x  /  tb y)  = L (x / y)
-<$ L $>F (bot   /  _)     = One
-<$ L $>F (_     /  _)     = Zero
+<$_$>F <^_^>P : forall {P} -> REL P -> REL <$ P $>D
+<$ L $>F (_     / top)   = One
+<$ L $>F (tb x  / tb y)  = L (x / y)
+<$ L $>F (bot   / _)     = One
+<$ L $>F (_     / _)     = Zero
+<^ L ^>P xy = <P <$ L $>F xy P>
 \end{code}
-Moreover, we obtain a notion of \emph{interval}---a set of elements within
-given bounds.
+The type |<^ L ^>P (x / y)| thus represents ordering evidence on bounds
+which admits matching and construction by |!|, without further elaboration.
+
+
+\section{Equipment for Relations and Other Families}
+
+Before we get back to work in earnest, let us build a few tools for working
+with relations and other such indexed type families: a relation is a family
+which happens to be indexed by a pair. We shall have need of
+pointwise truth, falsity, conjunction, disjunction and implication.
+%format Never = "\F{\dot{0}}"
+%format Always = "\F{\dot{1}}"
+%format -+- = "\F{\dot{+}}"
+%format _-+-_ = "\_\!" -+- "\!\_"
+%format -*- = "\F{\dot{\times}}"
+%format _-*-_ = "\_\!" -*- "\!\_"
 \begin{code}
-<$_$>II : forall {P} -> REL P -> REL <$ P $>D
-<$ L $>II (l / u) = Sg _ \ p -> <$ L $>F (l / tb p) * <$ L $>F (tb p / u)
+Never Always : {I : Set} -> I -> Set
+Never   i = Zero
+Always  i = One
+
+_-+-_ _-*-_ _>>_ : {I : Set} ->
+  (I -> Set) -> (I -> Set) -> I -> Set
+(S -+- T)  i = S i + T i
+(S -*- T)  i = S i * T i
+(S >> T)   i = S i -> T i
+infixr 3 _-+-_
+infixr 4 _-*-_
+infixr 2 _>>_
 \end{code}
+
+Pointwise implication will be useful for writing \emph{index-respecting}
+functions, e.g., bounds-preserving operations.
+It is useful to be able to state that something holds at every index
+(i.e., `always works').
+\begin{code}
+[_] : {I : Set} -> (I -> Set) -> Set
+[ F ] = forall {i} -> F i
+\end{code}
+With this apparatus, we can quite often talk about indexed things without
+mentioning the indices, resulting in code which almost looks like its simply
+typed counterpart. You can check that for any |S| and |T|,
+\[
+  |inl : [ S >> S -+- T ]|
+\]
+%if False
+\begin{code}
+mytest : forall {I}{S T : I -> Set} -> [ S >> S -+- T ]
+mytest = inl
+\end{code}
+%endif
+and other similar examples.
+
+
+\section{Working with Bounded Sets}
+
+%format ^ = "\F{\dot{\wedge}}"
+%format _^_ = "\_\!" ^ "\!\_"
+It will be useful to consider sets indexed by bounds in the same framework
+as relations on bounds: \emph{propositions-as-types} means we have been doing
+this from the start!
+Useful combinator on such sets is the \emph{pivoted pair}, |S ^ T|,
+indicating that some pivot value |p| exists, with |S| holding
+before |p| and |T| afterwards. A pattern synonym arranges the order neatly.
+%format \\ = "\!\!\C{\raisebox{ -0.07in}[0in][0in]{`}\!}"
+%format _\\_\\_ = _ \\ _ \\ _
+\begin{code}
+_^_ : forall {P} -> REL <$ P $>D -> REL <$ P $>D -> REL <$ P $>D
+_^_ {P} S T (l / u) = Sg P \ p -> S (l / tb p) * T (tb p / u)
+
+pattern _\\_\\_ s p t = p / s / t
+infixr 5 _\\_\\_ 
+\end{code}
+
+Immediately, we can define an \emph{interval} as an element within proven bounds.
+\begin{code}
+<$_$>II : forall {P}(L : REL P) -> REL <$ P $>D
+<$ L $>II = <^ L ^>P ^ <^ L ^>P
+pattern <$_$>ii p = ! \\ p \\ !
+\end{code}
+In habitual tidiness, a pattern synonym conceals the evidence.
 
 Let us then parametrize over some
-\[ |owoto : forall x y -> L x y + L y x| \]
+\[ |owoto : forall x y -> OWOTO L (x / y)| \]
 and reorganise our development.
 %if False
 \begin{code}
-module BinarySearchTreeWorks
-  {P : Set}(L : REL P)(owoto : forall x y -> L (x / y) + L (y / x)) where
+module BinarySearchTreeWorks where
+  postulate
+    P : Set
+    L : REL P
+    owoto : forall x y -> OWOTO L (x / y)
 \end{code}
 %endif
+%format pnode = "\C{pnode}"
 \begin{code}
   data BST (lu : <$ P $>D * <$ P $>D) : Set where
-    leaf  :  BST lu
-    node  :  (p : P) -> <$ L $>F (fst lu / tb p) -> <$ L $>F (tb p / snd lu) ->
-             BST (fst lu / tb p) -> BST (tb p / snd lu) -> BST lu
+    leaf   :  BST lu
+    pnode  :  ((<^ L ^>P -*- BST) ^ (<^ L ^>P -*- BST) >> BST) lu
+  pattern node lt p rt = pnode (p / (! / lt) / (! / rt))
+\end{code}
 
+%format insert3 = "\F{insert}"
+Reassuringly, the standard undergraduate error, arising from thinking
+about \emph{doing} not \emph{being}, is now ill typed.
+\begin{code}
+  insert3 :  [ <$ L $>II >> BST >> BST ]
+  insert3 <$ y $>ii leaf            = node leaf y leaf
+  insert3 <$ y $>ii (node lt p rt)  with owoto y p
+  ... | le  = (BROWN (insert3 <$ y $>ii lt))
+  ... | ge  = (BROWN (insert3 <$ y $>ii rt))
+\end{code}
+
+However, once we remember to restore the unchanged parts of the tree,
+we achieve victory, at last!
+\begin{code}
   insert2 :  [ <$ L $>II >> BST >> BST ]
-  insert2 (y / ly / yu) leaf = node y ly yu leaf leaf
-  insert2 (y / ly / yu) (node p lp pu lt rt)  with owoto y p
-  ... | inl  yp  = node p lp pu (insert2 (y / ly / yp) lt) rt
-  ... | inr  py  = node p lp pu lt (insert2 (y / py / yu) rt)
+  insert2 <$ y $>ii leaf            = node leaf y leaf
+  insert2 <$ y $>ii (node lt p rt)  with owoto y p
+  ... | le  = node (insert2 <$ y $>ii lt) p rt
+  ... | ge  = node lt p (insert2 <$ y $>ii rt)
 \end{code}
 
 The evidence generated by testing |owoto y p| is just what is needed
 to enable insertion in the appropriate subtree. We have found a method
-which seems to work! However, I fear we should not get too excited.
-
+which seems to work! But I fear we should not get too excited.
 
 \section{The Importance of Local Knowledge}
 
@@ -656,16 +874,27 @@ surely have happened, but that does not mean we should retain the
 information.
 
 Suppose, for example, that we want to rotate a tree, perhaps to keep it
-balanced, then we have a little problem:
-%format rotater = "\F{rotater}"
+balanced, then we have a little local difficulty:
+%format rotR = "\F{rotR}"
+\begin{spec}
+  rotR : [ BST >> BST ]
+  rotR (node (node lt m mt) p rt)
+    = (BROWN node) lt (BROWN m) (node mt p rt)
+  rotR t                           = t
+\end{spec}
+Agda rejects the outer |node| of the rotated tree for lack of evidence.
+If I expand the pattern synonyms and reveal the instance arguments, we can
+see what is missing.
 \begin{code}
-  rotater : [ BST >> BST ]
-  rotater (node p lp pu (node m lm mp lt mt) rt)
-    = node m lm (HOLE 2) lt (node p mp pu mt rt)
-  rotater t = t
+  rotR : [ BST >> BST ]
+  rotR  (pnode
+    ((! {{lp}} / pnode ((! {{lm}} / lt) \\ m \\ (! {{mp}} / mt)))
+    \\ p \\ (! {{pu}} / rt))) = pnode ((! {{lm}} / lt) \\ m \\
+    (! {{(HOLE 2)}} / pnode ((! {{mp}} / mt) \\ p \\ (! {{pu}} / rt))))
+  rotR t = t
 \end{code}
-We have discarded the non-local ordering evidence |lp : <$ L $>F l (tb p)|,
-but now we need the non-local |(HOLE 2) : <$ L $>F (tb m) u| and we do not
+We can discard the non-local ordering evidence |lp : <$ L $>F (l / tb p)|,
+but now we need the non-local |(HOLE 2) : <$ L $>F (tb m / u)| and we do not
 have it. Of course, we can prove this goal from |mp| and |pu| if we know
 that |L| is transitive, but if we want to make less work for ourselves, we
 should rather not demand non-local ordering evidence in the first place.
@@ -679,15 +908,21 @@ at the cost of a new constraint for |leaf|.
 
 %if False
 \begin{code}
-module BinarySearchTreeBest
-  {P : Set}(L : REL P)(owoto : forall x y -> L (x / y) + L (y / x)) where
+module BinarySearchTreeBest where
+  postulate
+    P : Set
+    L : REL P
+    owoto : forall x y -> OWOTO L (x / y)
 \end{code}
 %endif
+%format pleaf = "\C{pleaf}"
 \begin{code}
   data BST (lu : <$ P $>D * <$ P $>D) : Set where
-    leaf  :  <$ L $>F lu -> BST lu
-    node  :  (p : P) ->
-             BST (fst lu / tb p) -> BST (tb p / snd lu) -> BST lu
+    pleaf  :  (<^ L ^>P >> BST) lu
+    pnode  :  (BST ^ BST >> BST) lu
+
+  pattern leaf          = pleaf !
+  pattern node lt p rt  = pnode (lt \\ p \\ rt)
 \end{code}
 
 Indeed, a binary tree with $n$ nodes will have $n+1$ leaves. An in-order
@@ -697,19 +932,18 @@ the evidence that neighbouring nodes are in order! Insertion remains easy.
 
 \begin{code}
   insert2 :  [ <$ L $>II >> BST >> BST ]
-  insert2 (y / ly / yu) (leaf _) = node y (leaf ly) (leaf yu)
-  insert2 (y / ly / yu) (node p lt rt)  with owoto y p
-  ... | inl  yp  = node p (insert2 (y / ly / yp) lt) rt
-  ... | inr  py  = node p lt (insert2 (y / py / yu) rt)
+  insert2 <$ y $>ii leaf = node leaf y leaf
+  insert2 <$ y $>ii (node lt p rt)  with owoto y p
+  ... | le  = node (insert2 <$ y $>ii lt) p rt
+  ... | ge  = node lt p (insert2 <$ y $>ii rt)
 \end{code}
 
-Rotation becomes very easy, with not a proof in sight!
+Rotation becomes very easy, with no proofs to rearrange!
 
 \begin{code}
-  rotater : [ BST >> BST ]
-  rotater (node p (node m lt mt) rt) =
-    node m lt (node p mt rt)
-  rotater t = t
+  rotR : [ BST >> BST ]
+  rotR (node (node lt m mt) p rt) = node lt m (node mt p rt)
+  rotR t = t
 \end{code}
 
 We have arrived at a neat way to keep a search tree in order,
@@ -728,14 +962,13 @@ down in short order, just by inlining |leaf|'s data in the left
 subtree of |node|, yielding a sensible |cons|.
 \begin{code}
   data OList (lu : <$ P $>D * <$ P $>D) : Set where
-    nil   :  <$ L $>F lu -> OList lu
-    cons  :  (p : P) ->
-             <$ L $>F (fst lu / tb p) -> OList (tb p / snd lu) -> OList lu 
+    nil   :  (<^ L ^>P >> OList) lu
+    cons  :  (<^ L ^>P ^ OList >> OList) lu 
 \end{code}
 
 By figuring out how to build ordered binary search trees, we have
-actually discovered how to build all sorts of in-order data
-structures. We simply need to show how the data are build from
+actually discovered how to build quite a variety of in-order data
+structures. We simply need to show how the data are built from
 particular patterns of |BST| components. So, rather than flattening
 binary search trees, let us pursue a generic account of in-order datatypes,
 then flatten them \emph{all}.
@@ -753,38 +986,46 @@ then flatten them \emph{all}.
 %format _q*_ = "\_\!" q* "\!\_"
 %format (ElJJ) = "\F{\llbracket\_\rrbracket_{" JJ "}}}"
 %format (ElJJ (t)) = "\F{\llbracket}" t "\F{\rrbracket_{" JJ "}}"
-%format <! = "\F{\llbracket}"
-%format !>JJ = "\F{\rrbracket_{" JJ "}}"
-%format <!_!>JJ = <! "\_" !>JJ
+%format <! = "\F{\llbracket}\!"
+%format !>JJ = "\!\F{\rrbracket_{" JJ "}}"
+%format <!_!>JJ = <! _ !>JJ
 %format MuJJ = "\D{\upmu_{" JJ "}}"
 %format la = "\C{\langle}\!"
 %format ra = "\!\C{\rangle}"
 %format la_ra = la "\_" ra
 
+If we want to see how to make the treatment of ordered container structures
+systematic, we shall need some datatype-generic account of recursive types
+with places for elements. A compelling starting point is the `PolyP' system
+of Patrik Jansson and Johan Jeuring, which we try to bottle as a
+universe---a system of codes for types---in Agda, as follows:
 \begin{code}
-
 data JJ : Set where
   qR qP q1   : JJ
   _q+_ _q*_  : JJ -> JJ -> JJ
 infixr 4 _q+_
 infixr 5 _q*_
+\end{code}
 
+The |qR| stands for `recursive substructure' and the |qP| stands for
+`parameter'---the type of elements stored in the container. We can thus
+interpret a code in |JJ| as an operator filling in the meaning of those
+two codes.
+\begin{code}
 <!_!>JJ : JJ -> Set -> Set -> Set
 <! qR !>JJ      R P = R
 <! qP !>JJ      R P = P
 <! q1 !>JJ      R P = One
 <! S q+ T !>JJ  R P = <! S !>JJ R P + <! T !>JJ R P
 <! S q* T !>JJ  R P = <! S !>JJ R P * <! T !>JJ R P
-
-data MuJJ (F : JJ)(P : Set) : Set where
-  la_ra : <! F !>JJ (MuJJ F P) P -> MuJJ F P
-
 \end{code}
-
-The |qR| stands for `recursive substructure' and the |qP| stands for
-`parameter'---the type of elements stored in the container. When we
+When we
 `tie the knot' in |MuJJ F P|, we replace interpret |F|'s |qP|s by some
 actual |P| and its |qR|s by |MuJJ F P|.
+\begin{code}
+data MuJJ (F : JJ)(P : Set) : Set where
+  la_ra : <! F !>JJ (MuJJ F P) P -> MuJJ F P
+\end{code}
 
 %format Applicative = "\D{Applicative}"
 %format Monoid = "\D{Monoid}"
@@ -801,8 +1042,8 @@ actual |P| and its |qR|s by |MuJJ F P|.
 %format foldr = "\F{foldr}"
 %format go = "\F{go}"
 
-Being finitary and first-order, all of the containers in the |JJ|
-universe are \emph{traversable} in the sense defined by Ross Paterson
+Being finitary and first-order, all of the containers encoded by |JJ|
+are \emph{traversable} in the sense defined by Ross Paterson
 and myself \cite{conor.ross:applicative.functors}.
 
 \begin{code}
@@ -813,14 +1054,16 @@ record Applicative (H : Set -> Set) : Set1 where
 open Applicative
 \end{code}
 
-%format <*> = "\V{\circledast}"
+%format <*> = "\F{\circledast}"
 %format _<*>_ = "\_\!" <*> "\!\_"
+%format pu = "\F{pu}"
 \begin{code}
-traverse : forall {H F A B} -> Applicative H -> (A -> H B) ->
-           MuJJ F A -> H (MuJJ F B)
+traverse : forall {H F A B} -> Applicative H ->
+  (A -> H B) -> MuJJ F A -> H (MuJJ F B)
 traverse {H}{F}{A}{B} AH h t = go qR t where
   pu = pure AH ; _<*>_ = ap AH
-  go : forall G -> <! G !>JJ (MuJJ F A) A -> H (<! G !>JJ (MuJJ F B) B)
+  go : forall G ->
+    <! G !>JJ (MuJJ F A) A -> H (<! G !>JJ (MuJJ F B) B)
   go qR        la t ra  = pu la_ra <*> go F t
   go qP        a        = h a
   go q1        it       = pu it
@@ -834,7 +1077,8 @@ We can specialise |traverse| to standard functorial |map|.
 idApp : Applicative (\ X -> X)
 idApp = record {pure = id ; ap = id}
 
-map : forall {F A B} -> (A -> B) -> MuJJ F A -> MuJJ F B
+map : forall {F A B} ->
+  (A -> B) -> MuJJ F A -> MuJJ F B
 map = traverse idApp
 \end{code}
 
@@ -846,10 +1090,13 @@ record Monoid (X : Set) : Set where
     combine : X -> X -> X
 open Monoid
 
-monApp : forall {X} -> Monoid X -> Applicative (\ _ -> X)
-monApp m = record {pure = \ _ -> neutral m ; ap = combine m}
+monApp : forall {X} ->
+  Monoid X -> Applicative (\ _ -> X)
+monApp m = record
+  {pure = \ _ -> neutral m ; ap = combine m}
 
-crush : forall {P X F} -> Monoid X -> (P -> X) -> MuJJ F P -> X
+crush : forall {P X F} ->
+  Monoid X -> (P -> X) -> MuJJ F P -> X
 crush m = traverse {B = Zero} (monApp m)
 \end{code}
 
@@ -857,20 +1104,23 @@ Endofunctions on a given set form a monoid with respect to
 composition, which allows us a generic |foldr|-style operation.
 \begin{code}
 compMon : forall {X} -> Monoid (X -> X)
-compMon = record {neutral = id ; combine = \ f g -> f o g}
+compMon = record
+  {neutral = id ; combine = \ f g -> f o g}
 
-foldr : forall {F A B} -> (A -> B -> B) -> B -> MuJJ F A -> B
+foldr : forall {F A B} ->
+  (A -> B -> B) -> B -> MuJJ F A -> B
 foldr f b t = crush compMon f t b
 \end{code}
 We can use |foldr| to build up |B|s from any structure containing |A|s,
 given a way to `insert' an |A| into a |B|, and an `empty' |B| to start with.
+Let us check that our generic machinery is fit for purpose.
 
 
-\section{The Simple Orderable Universe}
+\section{The Simple Orderable Subuniverse of |JJ|}
 
 %format SO = "\D{SO}"
-%format !>SO = "\F{\rrbracket_{" SO "}}"
-%format <!_!>SO = <! "\_" !>SO
+%format !>SO = "\!\F{\rrbracket_{" SO "}}"
+%format <!_!>SO = <! _ !>SO
 %format MuSO = "\F{\upmu_{" SO "}}"
 %format q^ = "\C{`\wedge}"
 %format _q^_ = "\_\!" q^ "\!\_"
@@ -984,11 +1234,10 @@ pattern SHUNT X = X
 %format SHUNT = "\hspace*{0.6in}"
 \begin{code}
 <!_!>OSO : SO -> forall {P} -> REL <$ P $>D -> REL P -> REL <$ P $>D
-<! qR !>OSO       R L lu       = R lu
-<! q1 !>OSO       R L lu       = <$ L $>F lu
-<! S q+ T !>OSO   R L lu       = <! S !>OSO R L lu + <! T !>OSO R L lu
-<! S q^ T !>OSO   R L (l / u)  = Sg _ \ p ->
-  SHUNT <! S !>OSO R L (l / tb p) * <! T !>OSO R L (tb p / u)
+<! qR !>OSO       R L = R
+<! q1 !>OSO       R L = <^ L ^>P
+<! S q+ T !>OSO   R L = <! S !>OSO R L -+- <! T !>OSO R L
+<! S q^ T !>OSO   R L = <! S !>OSO R L ^ <! T !>OSO R L
 
 data MuOSO  (F : SO){P : Set}(L : REL P)
             (lu : <$ P $>D * <$ P $>D) : Set where
@@ -997,54 +1246,42 @@ data MuOSO  (F : SO){P : Set}(L : REL P)
 We have shifted from sets to relations, in that our types are indexed
 by lower and upper bounds. The leaves demand evidence that the bounds
 are in order, whilst the nodes require the pivot first, then use it to
-bound the substructures appropriately. I promise that I shall never name
-the evidence: I shall always match it with the |_| pattern and construct
-it by means of the following device, making use of \emph{instance arguments}:
-
-%format ! = "\F{\scriptstyle{!}}"
-\begin{code}
-! : forall {X : Set}{{x : X}} -> X
-! {X}{{x}} = x
-\end{code}
-
-When we use |!| at type |X|, Agda treats the |x| as an implicit argument,
-but rather than solving for |x| by \emph{unification}, Agda
-seeks an \emph{assumption} of type |X| in the context, succeeding if there
-is exactly one.
+bound the substructures appropriately.
 
 Meanwhile, the need in nodes to bound the left substructure's type
 with the pivot value disrupts the left-to-right spatial ordering of the
 data, but we can apply a little cosmetic treatment, thanks to the
 availability of \emph{pattern synonyms}~\cite{aitken.reppy}.
 
-%format \\ = "\!\!\C{\raisebox{ -0.07in}[0in][0in]{`}\!}"
-%format _\\_\\_ = "\_" \\ "\_" \\ "\_"
-\begin{code}
-pattern _\\_\\_ s p t = p / s / t
-infixr 5 _\\_\\_ 
-\end{code}
 
 %format treeOSO = "\F{tree}"
 %format $>T = "\F{\!\!\!^\Delta}"
 %format <$_$>T = "\_" $>T
 %format $>I = $>II
 %format <$_$>I = "\_" $>I
+%format $>ic = "\C{\!\!\!^\circ}"
+%format <$_$>ic = _ $>ii
 With these two devices available, let us check that we can still turn
 any ordered data into an ordered tree, writing |<$ L $>T l u| for
 |MuOSO qTreeSO L l u|, and redefining intervals accordingly.
 \begin{code}
 <$_$>T <$_$>I : forall {P} -> REL P -> REL <$ P $>D
+
 <$ L $>T  = MuOSO qTreeSO      L
+pattern leaf          = la inl ! ra
+pattern node lp p pu  = la inr (lp \\ p \\ pu) ra
+
 <$ L $>I  = MuOSO qIntervalSO  L
+pattern <$_$>ic p = la (p / ! / !) ra
 
 treeOSO :  forall {P F}{L : REL P} -> [ MuOSO F L >> <$ L $>T ]
 treeOSO {P}{F}{L} la f ra = go F f where
   go : forall G -> [ <! G !>OSO (MuOSO F L) L >> <$ L $>T ]
   go qR        f              = treeOSO f
-  go q1        _              = la inl ! ra
+  go q1        !              = leaf
   go (S q+ T)  (inl s)        = go S s
   go (S q+ T)  (inr t)        = go T t
-  go (S q^ T)  (s \\ p \\ t)  = la inr (go S s \\ p \\ go T t) ra
+  go (S q^ T)  (s \\ p \\ t)  = node (go S s) p (go T t)
 \end{code}
 
 We have acquired a collection of orderable datatypes which all amount
@@ -1057,7 +1294,7 @@ immediate neighbours.
 %if False
 \begin{code}
 module BinarySearchTreeGen
-  {P : Set}(L : REL P)(owoto : forall x y -> L (x / y) + L (y / x)) where
+  {P : Set}(L : REL P)(owoto : forall x y -> OWOTO L (x / y)) where
 \end{code}
 %endif
 
@@ -1066,10 +1303,10 @@ Hence we can rebuild our binary search tree insertion for an element
 in the corresponding interval:
 \begin{code}
   insert2 : [ <$ L $>I >> <$ L $>T >> <$ L $>T ]
-  insert2 la _ \\ y \\ _ ra la inl _ ra = la inr (la inl ! ra \\ y \\ la inl ! ra) ra
-  insert2 la _ \\ y \\ _ ra la inr (lt \\ p \\ rt) ra with owoto y p
-  ... | inl _  = la inr (insert2 la ! \\ y \\ ! ra lt \\ p \\ rt) ra
-  ... | inr _  = la inr (lt \\ p \\ insert2 la ! \\ y \\ ! ra rt) ra
+  insert2 <$ y $>ic leaf            = node leaf y leaf
+  insert2 <$ y $>ic (node lt p rt)  with owoto y p
+  ... | le  = node (insert2 <$ y $>ic lt) p rt
+  ... | ge  = node lt p (insert2 <$ y $>ic rt)
 \end{code}
 The constraints on the inserted element are readily expressed via our
 |qIntervalSO| type, but at no point need we ever name the ordering
@@ -1090,12 +1327,19 @@ input container.
 %format $>+ = "\!\!\!\F{^{+}}"
 %format <$_$>+ = "\_" $>+
 %format mergeSO = "\F{merge}"
+%format // = "\C{::}"
+%format _//_ = _ // _
+%format nil = "\C{[]}"
 Let us name our family of ordered lists |<$ L $>+|, as the
-leaves form a nonempty chain of |<$ L $>F| ordering evidence.
+leaves form a nonempty chain of |<^ L ^>P| ordering evidence.
 
 \begin{code}
 <$_$>+ : forall {P} -> REL P -> REL <$ P $>D
 <$ L $>+ = MuOSO qListSO L
+
+pattern nil        = la inl ! ra
+pattern _//_ x xs  = la inr (x / ! / xs) ra
+infixr 6 _//_
 \end{code}
 
 
@@ -1110,20 +1354,23 @@ they can be merged within the same bounds. Again, let us assume a type
 %format mergeNO = "\F{merge}"
 %if False
 \begin{code}
-module MergeSO
-  {P : Set}(L : REL P)(owoto : forall x y -> L (x / y) + L (y / x)) where
+module MergeSO where
+  postulate
+    P : Set
+    L : REL P
+    owoto : forall x y -> OWOTO L (x / y)
 \end{code}
 %endif
 The familiar definition of |mergeNO| typechecks but falls just
 outside the class of lexicographic recursions accepted by Agda's termination
-checker.
+checker. I have dug out the concealed evidence which causes the trouble.
 \begin{spec}
   mergeNO : [ <$ L $>+ >> <$ L $>+ >> <$ L $>+ ]
-  mergeNO  la inl _ ra               ys                        = ys
-  mergeNO  xs                        la inl _ ra               = xs  
-  mergeNO  la inr ((BROWN _) \\ x \\ xs) ra  la inr (_ \\ y \\ ys) ra  with owoto x y
-  ... | inl _  = la inr (! \\ x \\ mergeNO xs la inr (! \\ y \\ ys) ra) ra 
-  ... | inr _  = la inr (! \\ y \\ mergeNO la inr ((BROWN !) \\ x \\ xs) ra ys) ra
+  mergeNO  nil                                     ys         = ys
+  mergeNO  xs                                      nil        = xs  
+  mergeNO  la inr (BROWN (! {{_}}) \\ x \\ xs) ra  (y // ys)  with owoto x y
+  ... | le  = x // mergeNO xs (y //ys)
+  ... | ge  = y // mergeNO la inr ((BROWN (! {{_}})) \\ x \\ xs) ra ys
 \end{spec}
 In one step case, the first list gets smaller, but in the other,
 where we decrease the second list, the first does not remain the
@@ -1133,14 +1380,14 @@ recursions are structural.
 
 \begin{code}
   mergeSO : [ <$ L $>+ >> <$ L $>+ >> <$ L $>+ ]
-  mergeSO          la inl _ ra               = id
-  mergeSO {l / u}  la inr (_ \\ x \\ xs) ra  = go where
-    go :  forall {l}{{_ : <$ L $>F (l / tb x)}} ->
-            <$ L $>+ (l / u) -> <$ L $>+ (l / u)
-    go la inl _ ra               = la inr (! \\ x \\ xs) ra
-    go la inr (_ \\ y \\ ys) ra  with owoto x y
-    ... | inl _  = la inr (! \\ x \\ mergeSO xs la inr (! \\ y \\ ys) ra) ra 
-    ... | inr _  = la inr (! \\ y \\ go ys) ra
+  mergeSO          nil        = id
+  mergeSO {l / u}  (x // xs)  = go where
+    go :  forall {l}{{_ : <$ L $>F (l / tb x)}} -> (<$ L $>+ >> <$ L $>+) (l / u)
+    go nil        = x // xs
+    go (y // ys)  with owoto x y
+    ... | le  = x // mergeSO xs (y // ys)
+    ... | ge  = y // go ys
+
 \end{code}
 The helper function, |go| inserts |x| at its
 rightful place in the second list, then resumes merging with |xs|.
@@ -1148,8 +1395,8 @@ rightful place in the second list, then resumes merging with |xs|.
 Merging equips ordered lists with monoidal structure.
 %format olistMon = "\F{olMon}"
 \begin{code}
-  olistMon : forall {lu}{{_ : <$ L $>F lu}} -> Monoid (<$ L $>+ lu)
-  olistMon = record {neutral = la inl ! ra ; combine = mergeSO}
+  olistMon : forall {lu} -> <$ L $>F lu => Monoid (<$ L $>+ lu)
+  olistMon = record {neutral = nil ; combine = mergeSO}
 \end{code}
 
 An immediate consequence is that we gain a family of sorting algorithms
@@ -1158,7 +1405,7 @@ making a singleton from each pivot.
 %format mergeJJ = mergeSO "_{" JJ "}"
 \begin{code}
   mergeJJ : forall {F} -> MuJJ F P -> <$ L $>+ (bot / top)
-  mergeJJ = crush olistMon \ p -> la inr (_ \\ p \\ la inl _ ra) ra
+  mergeJJ = crush olistMon \ p -> p // nil
 \end{code}
 
 %format mergeSort = "\F{mergeSort}"
@@ -1169,20 +1416,26 @@ a leaf-labelled binary tree.
 
 %format qLTree = "\F{`qLTree}"
 %format twistIn = "\F{twistIn}"
+%format none = "\C{none}"
+%format one = "\C{one}"
+%format fork = "\C{fork}"
 \begin{code}
   qLTree : JJ
   qLTree = (q1 q+ qP) q+ qR q* qR
+
+  pattern none      = la inl (inl it) ra
+  pattern one p     = la inl (inr p) ra
+  pattern fork l r  = la inr (l / r) ra
 \end{code}
 
 We can add each successive elements to the tree with a twisting insertion,
 placing the new element at the bottom of the left spine, but swapping the
 subtrees at each layer along the way to ensure fair distribution.
-
 \begin{code}
   twistIn : P -> MuJJ qLTree P -> MuJJ qLTree P
-  twistIn p la inl (inl it) ra  = la inl (inr p) ra
-  twistIn p la inl (inr q) ra   = la inr (la inl (inr p) ra / la inl (inr q) ra) ra
-  twistIn p la inr (l / r) ra   = la inr (twistIn p r / l) ra
+  twistIn p none        = one p
+  twistIn p (one q)     = fork (one p) (one q)
+  twistIn p (fork l r)  = fork (twistIn p r) l
 \end{code}
 
 If we notice that |twistIn| maps elements to endofunctions on trees, we can
@@ -1190,7 +1443,7 @@ build up trees by a monoidal |crush|, obtaining an efficient generic sort for
 any container in the |JJ| universe.
 \begin{code}
   mergeSort : forall {F} -> MuJJ F P -> <$ L $>+ (bot / top)
-  mergeSort = mergeJJ o foldr twistIn la inl (inl it) ra
+  mergeSort = mergeJJ o foldr twistIn none
 \end{code}
 
 
@@ -1215,15 +1468,17 @@ middle.
 infixr 8 _++_
 _++_ :  forall {P}{L : REL P}{l p u} ->
   <$ L $>+ (l / p) -> <$ L $>+ (p / u) -> <$ L $>+ (l / u)
-la inl _ ra               ++ ys = (BROWN ys)
-la inr (_ \\ x \\ xs) ra  ++ ys = la inr (! \\ x \\ xs ++ ys) ra
+nil        ++ ys = (BROWN ys)
+(x // xs)  ++ ys = x // xs ++ ys
 \end{code}
 
 The `cons' case goes without a hitch, but there is trouble at `nil'.
 We have |ys : MuOSO qListSO L p u| and we know |<$ L $>F l p|, but
 we need to return a |MuOSO qListSO L l u|.
 
-\textbf{draw a diagram showing the --- ---o---o--- situation}
+\[\xymatrix @@C=0in @@R=0in {
+\rct&*++[][F-]{|++|}&\blo{4}\blo{5}\blo{6}\blo{7}\blo{8}\blo{9}\rct\\
+}\]
 
 ``The trouble is easy to fix,'' one might confidently assert, whilst
 secretly thinking, ``What a nuisance!''. We can readily write a helper
@@ -1239,10 +1494,9 @@ can't always get what you want, but you can get what you need.
 
 %format sandwich = "\F{sandwich}"
 \begin{code}
-sandwich :  forall {P}{L : REL P}{l u} p ->
-  <$ L $>+ (l / tb p) -> <$ L $>+ (tb p / u) -> <$ L $>+ (l / u)
-sandwich p la inl _ ra               ys = la inr (! \\ p \\ ys) ra
-sandwich p la inr (_ \\ x \\ xs) ra  ys = la inr (! \\ x \\ sandwich p xs ys) ra
+sandwich :  forall {P}{L : REL P} -> [ (<$ L $>+ ^ <$ L $>+) >> <$ L $>+ ]
+sandwich (nil      \\ p \\ ys)  = p // ys
+sandwich (x // xs  \\ p \\ ys)  = x // sandwich (xs \\ p \\ ys)
 \end{code}
 
 %format flattenT = "\F{flatten}"
@@ -1252,8 +1506,8 @@ structure:
 
 \begin{code}
 flattenT : forall {P}{L : REL P} -> [ <$ L $>T >> <$ L $>+ ]
-flattenT la inl _ ra              = la inl ! ra
-flattenT la inr (l \\ p \\ r) ra  = sandwich p (flattenT l) (flattenT r)
+flattenT leaf          = nil
+flattenT (node l p r)  = sandwich (flattenT l \\ p \\ flattenT r)
 
 flattenOSO : forall {P}{L : REL P}{F} -> [ MuOSO F L >> <$ L $>+ ]
 flattenOSO = flattenT o treeOSO
@@ -1276,7 +1530,7 @@ result with successive conses. But what should be the bounds of the
 accumulator? If we have not learned our lesson, we might be tempted by
 %format flapp = "\F{flapp}"
 \begin{spec}
-flapp : forall {P}{L : REL P}{F}{l p u} ->
+flapp : forall {F P}{L : REL P}{l p u} ->
   MuOSO F L (l / p) -> <$ L $>+ (p / u) -> <$ L $>+ (l / u)
 \end{spec}
 but again we face the question of what to do when we reach a leaf. We
@@ -1286,26 +1540,25 @@ into a sequence. We can adopt the previous remedy of inserting the element
 come from in the first instance, for example when flattening an empty
 structure.
 \begin{code}
-flapp : forall {P}{L : REL P}{F}{l u} G p ->
-    <! G !>OSO (MuOSO F L) L (l / tb p) ->
-    <$ L $>+ (tb p / u) -> <$ L $>+ (l / u)
-flapp {F = F} qR  p la t ra         ys  = flapp F p t ys
-flapp q1          p _               ys  = la inr (! \\ p \\ ys) ra
-flapp (S q+ T)    p (inl s)         ys  = flapp S p s ys
-flapp (S q+ T)    p (inr t)         ys  = flapp T p t ys
-flapp (S q^ T)    p (s \\ p' \\ t)  ys  = flapp S p' s (flapp T p t ys)
+flapp : forall {F P}{L : REL P} G ->
+    [ <! G !>OSO (MuOSO F L) L ^ <$ L $>+ >> <$ L $>+ ]
+flapp {F} qR    (la t ra         \\ p \\ ys)  = flapp F (t \\ p \\ ys)
+flapp q1        (!               \\ p \\ ys)  = p // ys
+flapp (S q+ T)  (inl s           \\ p \\ ys)  = flapp S (s \\ p \\ ys)
+flapp (S q+ T)  (inr t           \\ p \\ ys)  = flapp T (t \\ p \\ ys)
+flapp (S q^ T)  ((s \\ p' \\ t)  \\ p \\ ys)  = flapp S (s \\ p' \\ flapp T (t \\ p \\ ys))
 \end{code}
 To finish the job, we need to work our way down the right spine of the
 input in search of its rightmost element, which initialises |p|.
 \begin{code}
-fflatten : forall {P}{L : REL P}{F} -> [ MuOSO F L >> <$ L $>+ ]
-fflatten {P}{L}{F}{l / u} la t ra = go F t  where
+fflatten : forall {F P}{L : REL P} -> [ MuOSO F L >> <$ L $>+ ]
+fflatten {F}{P}{L}{l / u} la t ra = go F t  where
   go : forall {l} G -> <! G !>OSO (MuOSO F L) L (l / u) -> <$ L $>+ (l / u)
   go qR        t              = fflatten t
-  go q1        _              = la inl ! ra
+  go q1        !              = nil
   go (S q+ T)  (inl s)        = go S s
   go (S q+ T)  (inr t)        = go T t
-  go (S q^ T)  (s \\ p \\ t)  = flapp S p s (go T t)
+  go (S q^ T)  (s \\ p \\ t)  = flapp S (s \\ p \\ go T t)
 \end{code}
 
 This is effective, but it is more complicated than I should like. It
@@ -1355,12 +1608,12 @@ because in some sense it is!
 \begin{code}
 infixr 8 _+++_
 Replacement : forall {P} -> REL P -> REL <$ P $>D
-Replacement L (n / u) = forall {m}{{_ : <$ L $>F (m / n)}} -> <$ L $>+ (m / u)
+Replacement L (n / u) = forall {m} -> <$ L $>F (m / n) => <$ L $>+ (m / u)
 
 _+++_ : forall {P}{L : REL P}{l n u} ->
   <$ L $>+ (l / n) -> Replacement L (n / u) -> <$ L $>+ (l / u)
-la inl _ ra               +++ ys = ys
-la inr (_ \\ x \\ xs) ra  +++ ys = la inr (! \\ x \\ xs +++ ys) ra
+nil        +++ ys = ys
+(x // xs)  +++ ys = x // xs +++ ys
 \end{code}
 
 Careful use of instance arguments leaves all the manipulation of
@@ -1379,13 +1632,13 @@ fflapp {P}{L}{F}{u = u} t ys = go qR t ys where
   go :   forall {l n} G -> <! G !>OSO (MuOSO F L) L (l / n) ->
           Replacement L (n / u) -> <$ L $>+ (l / u)
   go qR        la t ra        ys  = go F t ys
-  go q1        _              ys  = ys
+  go q1        !              ys  = ys
   go (S q+ T)  (inl s)        ys  = go S s ys
   go (S q+ T)  (inr t)        ys  = go T t ys
-  go (S q^ T)  (s \\ p \\ t)  ys  = go S s la inr (! \\ p \\ go T t ys) ra
+  go (S q^ T)  (s \\ p \\ t)  ys  = go S s (p // go T t ys)
 
 flatten : forall {P}{L : REL P}{F} -> [ MuOSO F L >> <$ L $>+ ]
-flatten t = fflapp t la inl ! ra
+flatten t = fflapp t nil
 \end{code}
 
 
@@ -1415,12 +1668,11 @@ data IO (I : Set) : Set where
 
 <!_!>IO :  forall {I P} -> IO I ->
            (I -> REL <$ P $>D) -> REL P -> REL <$ P $>D
-<! qR i !>IO    R L lu       = R i lu
-<! q0 !>IO      R L lu       = Zero
-<! q1 !>IO      R L lu       = <$ L $>F lu
-<! S q+ T !>IO  R L lu       = <! S !>IO R L lu + <! T !>IO R L lu
-<! S q^ T !>IO  R L (l / u)  = Sg _ \ p ->
-  SHUNT <! S !>IO R L (l / tb p) * <! T !>IO R L (tb p / u)
+<! qR i !>IO    R L  = R i
+<! q0 !>IO      R L  = \ _ -> Zero
+<! q1 !>IO      R L  = <^ L ^>P
+<! S q+ T !>IO  R L  = <! S !>IO R L -+- <! T !>IO R L
+<! S q^ T !>IO  R L  = <! S !>IO R L ^ <! T !>IO R L
 
 data MuIO  {I P : Set}(F : I -> IO I)(L : REL P)
            (i : I)(lu : <$ P $>D * <$ P $>D) : Set where
@@ -1446,12 +1698,21 @@ We also lift our existing type-forming abbreviations:
 %format <$_$>iT = "\_" $>iT
 %format $>iI = $>I
 %format <$_$>iI = "\_" $>iI
+%format $>ic = "\C{\!\!\!^\circ}"
+%format <$_$>ic = "\_" $>ic
+%format $>io = "\C{\!\!\!^\circ}"
+%format <$_$>io = "\_" $>io
 \begin{code}
 <$_$>i+ <$_$>iT <$_$>iI : forall {P} -> REL P -> REL <$ P $>D
 <$ L $>i+  = MuIO qListIO      L it
 <$ L $>iT  = MuIO qTreeIO      L it
 <$ L $>iI  = MuIO qIntervalIO  L it
 \end{code}
+%if False
+\begin{code}
+pattern <$_$>io p = la p / ! / ! ra
+\end{code}
+%endif
 
 However, we may also make profitable use of indexing: here are ordered
 \emph{vectors}.
@@ -1482,14 +1743,16 @@ treeIO :  forall {I P F}{L : REL P}{i : I} -> [ MuIO F L i >> <$ L $>iT ]
 \end{code}
 %if False
 \begin{code}
+pattern leif = la inl ! ra
+pattern nodi lp p pu = la inr (p / lp / pu) ra
 treeIO {F = F}{L = L}{i = i} la t ra = go (F i) t where
   go : forall G -> [ <! G !>IO (MuIO F L) L >> <$ L $>iT ]
   go (qR i)    t              = treeIO t
   go q0        ()
-  go q1        _              = la inl ! ra
+  go q1        !              = leif
   go (S q+ T)  (inl s)        = go S s
   go (S q+ T)  (inr t)        = go T t
-  go (S q^ T)  (s \\ p \\ t)  = la inr (go S s \\ p \\ go T t) ra
+  go (S q^ T)  (s \\ p \\ t)  = nodi (go S s) p (go T t)
 \end{code}
 %endif
 
@@ -1500,16 +1763,17 @@ flattenIO :  forall {I P F}{L : REL P}{i : I} -> [ MuIO F L i >> <$ L $>i+ ]
 \end{code}
 %if False
 \begin{code}
+pattern _/i/_ x xs = la inr (x / ! / xs) ra
 flattenIO {I}{P}{F}{L}{i}{l / u} la t ra = go (F i) t la inl ! ra where
   go : forall G {l n} -> <! G !>IO (MuIO F L) L (l / n) ->
-       (forall {m}{{_ : <$ L $>F (m / n)}} -> <$ L $>i+ (m / u)) ->
+       (forall {m} -> <$ L $>F (m / n) => <$ L $>i+ (m / u)) ->
        <$ L $>i+ (l / u)
   go (qR i)    la t ra        ys = go (F i) t ys
   go q0        ()             ys
-  go q1        _              ys = ys
+  go q1        !              ys = ys
   go (S q+ T)  (inl s)        ys = go S s ys
   go (S q+ T)  (inr t)        ys = go T t ys
-  go (S q^ T)  (s \\ p \\ t)  ys = go S s la inr (! \\ p \\ go T t ys) ra
+  go (S q^ T)  (s \\ p \\ t)  ys = go S s (p /i/ go T t ys)
 \end{code}
 %endif
 
@@ -1526,17 +1790,34 @@ rather fiddly, but we can gain enough balance by allowing a little
 redundancy.  A standard way to achieve this is to insist on uniform height, but
 allow internal nodes to have
 either one pivot and two subtrees, or two pivots and three subtrees.
-We may readily encode these \emph{2-3 trees}.
+We may readily encode these \emph{2-3 trees} and give pattern synonyms
+for the three kinds of structure.
 %format $>23 = "\F{\!\!\!^{23}}"
 %format <$_$>23 = "\_" $>23
+%format no0 = "\C{no}_{\C{0}}"
+%format no2 = "\C{no}_{\C{2}}"
+%format no3 = "\C{no}_{\C{3}}"
 \begin{code}
 q23TIO : Nat -> IO Nat
 q23TIO ze      = q1
-q23TIO (su n)  = qR n q^ (qR n q+ (qR n q^ qR n))
+q23TIO (su h)  = qR h q^ (qR h q+ (qR h q^ qR h))
 
 <$_$>23 : forall {P}(L : REL P) -> Nat -> REL <$ P $>D
 <$ L $>23 = MuIO q23TIO L
+
+pattern no0               = la ! ra
+pattern no2 lt p rt       = la p / lt / inl rt ra
+pattern no3 lt p mt q rt  = la p / lt / inr (q / mt / rt) ra
+
 \end{code}
+
+%if False
+\begin{code}
+pattern via p = p / ! / !
+pattern _-\_ t p = p / t / !
+\end{code}
+%endif
+
 When we map a 2-3 tree of height $n$ back to binary trees, we get a
 tree whose left spine has length $n$ and whose right spine has a length
 between $n$ and $2n$.
@@ -1548,30 +1829,25 @@ Indeed, we need this extra wiggle room immediately for the base case!
 %if False
 \begin{code}
 module Tree23
-  {P : Set}(L : REL P)(owoto : forall x y -> L (x / y) + L (y / x)) where
+  {P : Set}(L : REL P)(owoto : forall x y -> OWOTO L (x / y)) where
 \end{code}
 %endif
 %format ins23 = "\F{ins23}"
 \begin{code}
-  ins23 :  forall n {lu} -> <$ L $>iI lu -> <$ L $>23 n lu ->
-           <$ L $>23 n lu +
-           Sg P \ p -> <$ L $>23 n (fst lu / tb p) * <$ L $>23 n (tb p / snd lu)
-  ins23 ze      la _ \\ y \\ _ ra la _ ra = inr (la ! ra \\ y \\ la ! ra)
+  ins23 :  forall h {lu} -> <$ L $>iI lu -> <$ L $>23 h lu ->
+           <$ L $>23 h lu +
+           Sg P \ p -> <$ L $>23 h (fst lu / tb p) * <$ L $>23 h (tb p / snd lu)
+  ins23 ze      <$ y $>io no0 = inr (la ! ra \\ y \\ la ! ra)
 \end{code}
 In the step case, we must find our way to the appropriate subtree by
 suitable use of comparison.
 \begin{spec}
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ rest ra with owoto y p
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ rest ra
-    | inl _  =   (HOLE 0)
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inl rt ra
-    | inr x  =   (HOLE 1)
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
-    | inr x with owoto y q
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
-    | inr x  |   inl _  = (HOLE 2)
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
-    | inr x  |   inr _  = (HOLE 3)
+  ins23 (su h)  <$ y $>io la lt \\ p \\ rest ra  with owoto y p
+  ins23 (su h)  <$ y $>io la lt \\ p \\ rest ra  | le  =   (HOLE 0)
+  ins23 (su h)  <$ y $>io (no2 lt p rt)          | ge  =   (HOLE 1)
+  ins23 (su h)  <$ y $>io (no3 lt p mt q rt)     | ge with owoto y q
+  ins23 (su h)  <$ y $>io (no3 lt p mt q rt)     | ge  |  le  = (HOLE 2)
+  ins23 (su h)  <$ y $>io (no3 lt p mt q rt)     | ge  |  ge  = (HOLE 3)
 \end{spec}
 Our |(HOLE 0)| covers the case where the new element belongs in the
 left subtree of either a 2- or 3-node; |(HOLE 1)| handles the right
@@ -1587,14 +1863,14 @@ call. If we are lucky, the result will plug straight back into the same hole.
 Here is the case for the left subtree.
 %if False
 \begin{code}
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ rest ra with owoto y p
+  ins23 (su h)  <$ y $>io la lt \\ p \\ rest ra with owoto y p
 \end{code}
 %endif
 \begin{code}
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ rest ra
-    | inl _  with ins23 n la ! \\ y \\ ! ra lt
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ rest ra
-    | inl _  | inl lt'                = inl la lt' \\ p \\ rest ra
+  ins23 (su h)  <$ y $>io la lt \\ p \\ rest ra | le
+    with ins23 h <$ y $>io lt
+  ins23 (su h)  <$ y $>io la lt \\ p \\ rest ra | le
+    | inl lt'                = inl la lt' \\ p \\ rest ra
 \end{code}
 However, if we are unlucky, the result of the recursive call is too big.
 If the top node was a 2-node, we can accommodate the extra data by returning
@@ -1602,12 +1878,10 @@ a 3-node. Otherwise, we must rebalance and pass the `too big' problem upward.
 Again, we gain from delaying the inspection of |rest| until we are sure
 reconfiguration will be needed.
 \begin{code}
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inl rt ra
-    | inl _  | inr (llt \\ r \\ lrt)
-    = inl la llt \\ r \\ inr (lrt \\ p \\ rt) ra
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
-    | inl _  | inr (llt \\ r \\ lrt)
-    = inr (la llt \\ r \\ inl lrt ra \\ p \\ la mt \\ q \\ inl rt ra)
+  ins23 (su h)  <$ y $>io (no2 lt p rt)       | le
+    | inr (llt \\ r \\ lrt)  = inl (no3 llt r lrt p rt)
+  ins23 (su h)  <$ y $>io (no3 lt p mt q rt)  | le
+    | inr (llt \\ r \\ lrt)  = inr (no2 llt r lrt \\ p \\ no2 mt q rt)
 \end{code}
 For the |(HOLE 1)| problems, the top 2-node can always accept the
 result of the recursive call somehow, and the choice offered by the
@@ -1615,37 +1889,32 @@ return type conveniently matches the node-arity choice, right of the
 pivot.
 %if False
 \begin{code}
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inl rt ra
-    | inr x  with ins23 n la ! \\ y \\ ! ra rt
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inl rt ra
-    | inr x  | rt' = inl la lt \\ p \\ rt' ra
+  ins23 (su h)  <$ y $>io (no2 lt p rt) | ge  with ins23 h <$ y $>io rt
+  ins23 (su h)  <$ y $>io (no2 lt p rt) | ge  | rt' = inl la lt \\ p \\ rt' ra
 \end{code}
 %endif
 %if False
 \begin{code}
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
-    | inr x  with owoto y q
+  ins23 (su h)  <$ y $>io (no3 lt p mt q rt) | ge  with owoto y q
 \end{code}
 %endif
 For completeness, I give the middle (|(HOLE 2)|) and right (|(HOLE 3)|)
 cases for 3-nodes,
 but it works just as on the left.
 \begin{code}
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
-    | inr x  |   inl _  with ins23 n la ! \\ y \\ ! ra mt
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
-    | inr x  |   inl _  | inl mt' = inl la lt \\ p \\ inr (mt' \\ q \\ rt) ra
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
-    | inr x  |   inl _  | inr (mlt \\ r \\ mrt)
-    = inr (la lt \\ p \\ inl mlt ra \\ r \\ la mrt \\ q \\ inl rt ra)
+  ins23 (su h)  <$ y $>io (no3 lt p mt q rt)  | ge  |   le
+    with ins23 h <$ y $>io mt
+  ins23 (su h)  <$ y $>io (no3 lt p mt q rt)  | ge  |   le
+    | inl mt'                = inl (no3 lt p mt' q rt)
+  ins23 (su h)  <$ y $>io (no3 lt p mt q rt)  | ge  |   le
+    | inr (mlt \\ r \\ mrt)  = inr (no2 lt p mlt \\ r \\ no2 mrt q rt)
 
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
-    | inr x  |   inr _  with ins23 n la ! \\ y \\ ! ra rt
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
-    | inr x  |   inr _  | inl rt' = inl la lt \\ p \\ inr (mt \\ q \\ rt') ra
-  ins23 (su n)  la _ \\ y \\ _ ra la lt \\ p \\ inr (mt \\ q \\ rt) ra
-    | inr x  |   inr _  | inr (rlt \\ r \\ rrt)
-    = inr (la lt \\ p \\ inl mt ra \\ q \\ la rlt \\ r \\ inl rrt ra)
+  ins23 (su h)  <$ y $>io (no3 lt p mt q rt)  | ge  |   ge
+    with ins23 h <$ y $>io rt
+  ins23 (su h)  <$ y $>io (no3 lt p mt q rt)  | ge  |   ge
+    | inl rt'                = inl (no3 lt p mt q rt')
+  ins23 (su h)  <$ y $>io (no3 lt p mt q rt)  | ge  |   ge
+    | inr (rlt \\ r \\ rrt)  = inr (no2 lt p mt \\ q \\ no2 rlt r rrt)
 \end{code}
 
 To complete the efficient sorting algorithm based on 2-3 trees, we can
@@ -1654,17 +1923,218 @@ admits iterative construction.
 %format T23 = "\F{Tree23}"
 %format sort = "\F{sort}"
 \begin{code}
-  T23 = Sg Nat \ n -> <$ L $>23 n (bot / top)
+  T23 = Sg Nat \ h -> <$ L $>23 h (bot / top)
 
   insert2 : P -> T23 -> T23
-  insert2 p (n / t) with ins23 n la _ \\ p \\ _ ra t
-  ... | inl t'               = n     / t'
-  ... | inr (lt \\ r \\ rt)  = su n  / la lt \\ r \\ inl rt ra
+  insert2 p (h / t) with ins23 h <$ p $>io t
+  ... | inl t'               = h     / t'
+  ... | inr (lt \\ r \\ rt)  = su h  / no2 lt r rt
 
   sort : forall {F} -> MuJJ F P -> <$ L $>i+ (bot / top)
-  sort = flattenIO o snd o foldr insert2 (ze / la _ ra)
+  sort = flattenIO o snd o foldr insert2 (ze / no0)
 \end{code}
 
+
+\section{Deletion from 2-3 Trees}
+
+Might is right: the omission of \emph{deletion} from treatments of
+balanced search trees is always a little unfortunate. Deletion is a
+significant additional challenge because we can lose a key from the
+\emph{middle} of the tree, not just from the \emph{fringe} of nodes
+whose children are leaves. Insertion acts always to extend the fringe,
+so the problem is only to bubble an anomaly up from the fringe to the root.
+Fortunately, just as nodes and leaves alternate in the traversal of a tree,
+so do middle nodes and fringe nodes: whenever we need to delete a middle
+node, it always has a neighbour at the fringe which we can move into the
+gap, leaving us once more with the task of bubbling a problem up from the
+fringe.
+
+Our situation is further complicated by the need to restore the
+neighbourhood ordering invariant when one key is removed. At last, we
+shall need our ordering to be transitive. We shall also need a
+decidable equality on keys.
+
+\begin{code}
+  data _==_ {X : Set}(x : X) : X -> Set where
+    it : x == x
+  infix 6 _==_
+\end{code}
+
+
+%if False
+\begin{code}
+  module Delete23 (
+\end{code}
+%endif
+\begin{code}
+    trans : forall {x} y {z} -> L (x / y) => L (y / z) => <P L (x / z) P>
+\end{code}
+%if False
+\begin{code}
+    )(
+\end{code}
+%endif
+\begin{code}
+    decEq : (x y : P) -> x == y + (x == y -> Zero)
+\end{code}
+%if False
+\begin{code}
+    ) where
+\end{code}
+%endif
+
+Transitivity we may readily lift to bounds with a key in the middle:
+%format via = "\C{via}"
+\begin{spec}
+    pattern via p = p / ! / !
+\end{spec}
+\begin{code}
+    transTB : [ (<^ L ^>P ^ <^ L ^>P) >> <^ L ^>P ]
+    transTB {_     / top}   _         = !
+    transTB {bot   / bot}   _         = !
+    transTB {bot   / tb u}  _         = !
+    transTB {top   / _}     (via _)   = magic
+    transTB {tb l  / tb u}  (via p)   = trans p :- !
+    transTB {tb l  / bot}   (via _)   = magic
+\end{code}
+
+
+When we remove an element from a 2-3 tree of height $n$, the tree will
+often stay the same height, but there will be situations in which it
+must get shorter, becoming a 3-node or a leaf, as appropriate.
+
+%format Del23 = "\F{Del}^{\F{23}}"
+%format Short23 = "\F{Short}^{\F{23}}"
+\begin{code}
+    Del23 Short23 : Nat -> REL <$ P $>D
+    Del23    h      lu  =  Short23 h lu + <$ L $>23 h lu
+    Short23  ze     lu  =  Zero
+    Short23  (su h) lu  =  <$ L $>23 h lu
+\end{code}
+
+The task of deletion has three phases: finding the key to delete;
+moving the problem to the fringe; plugging a short tree into a tall hole.
+The first of these will be done by our main function,
+%format del23 = "\F{del}^{\F{23}}"
+\[
+  |del23 : forall {h} -> [ <$ L $>iI >> <$ L $>23 h >> Del23 h ]|
+\]
+and the second by extracting the extreme right key from a nonempty left subtree,
+%format extr = "\F{extr}"
+\[
+  |extr :  forall {h} -> [ <$ L $>23 (su h) >> (Del23 (su h) ^ <$ L $>F) ]|
+\]
+recovering the (possily short) remainder of the tree and the evidence that the key
+is below the upper bound (which will be the deleted key). Both of these operations
+will need to reconstruct trees with one short subtree, so let us build `smart
+constructors' for just that purpose, then return to the main problem.
+
+%format Re2 = "\F{Re2}"
+%format d2t = "\F{d2t}"
+%format t2d = "\F{t2d}"
+%format rd = "\F{rd}"
+If we try to reconstruct a 2-node with a possibly-short subtree, we might
+be lucky enough to deliver a 2-node, or we might come up short. We certainly
+will not deliver a 3-node of full height and it helps to reflect that in
+the type. Shortness can be balanced out if we are adjacent to a 3-node, but if we
+have only a 2-node, we must give a short answer.
+\begin{code}
+    Re2 :  Nat -> REL <$ P $>D
+    Re2 h =  Short23 (su h) -+- (<$ L $>23 h ^ <$ L $>23 h)
+
+    d2t :  forall {h} -> [ (Del23 h ^ <$ L $>23 h) >> Re2 h ]
+    d2t {h}     (inr lp  \\ p \\ pu)                = inr (lp \\ p \\ pu)
+    d2t {ze}    (inl ()  \\ p \\ pu)
+    d2t {su h}  (inl lp  \\ p \\ no2 pq q qu)       = inl (no3 lp p pq q qu)
+    d2t {su h}  (inl lp  \\ p \\ no3 pq q qr r ru)  = inr (no2 lp p pq \\ q \\ no2 qr r ru)
+
+    t2d :  forall {h} -> [ (<$ L $>23 h ^ Del23 h) >> Re2 h ]
+    t2d {h}     (lp                \\ p \\ inr pu)  = inr (lp \\ p \\ pu)
+    t2d {ze}    (lp                \\ p \\ inl ())
+    t2d {su h}  (no2 ln n np       \\ p \\ inl pu)  = inl (no3 ln n np p pu)
+    t2d {su h}  (no3 lm m mn n np  \\ p \\ inl pu)  = inr (no2 lm m mn \\ n \\ no2 np p pu)
+
+    rd : forall {h} -> [ Re2 h >> Del23 (su h) ]
+    rd (inl s)                = (inl s)
+    rd (inr (lp \\ p \\ pu))  = inr (no2 lp p pu)
+\end{code}
+The adaptor |rt| allows us to throw away the knowledge that the full
+height reconstruction must be a 2-node if we do not need it, but the
+extra detail allows us to use 2-node reconstructors in the course of
+3-node reconstruction.  To reconstruct a 3-node with one
+possibly-short subtree, rebuild a 2-node containing the suspect, and
+then restore the extra subtree. We thus need to implement the latter.
+
+\begin{code}
+    r3t :  forall {h} -> [ (Re2 h ^ <$ L $>23 h) >> Del23 (su h) ]
+    r3t (inr (lm \\ m \\ mp) \\ p \\ pu)    = inr (no3 lm m mp p pu)
+    r3t (inl lp \\ p \\ pu)                 = inr (no2 lp p pu)
+
+    t3r :  forall {h} -> [ (<$ L $>23 h ^ Re2 h) >> Del23 (su h) ]
+    t3r (lp \\ p \\ inr (pq \\ q \\ qu))    = inr (no3 lp p pq q qu)
+    t3r (lp \\ p \\ inl pu)                 = inr (no2 lp p pu)
+\end{code}
+
+We may now implement |extr|, grabbing the rightmost key from a tree. I use
+%format -\ = "\C{\bigtriangleup\!\!\!\!_{\not\;}}"
+%format _-\_ = _ -\ _
+\begin{spec}
+    pattern _-\_ lr r = r / lr / !
+\end{spec}
+to keep the extracted element on the right and hide the ordering proofs.
+\begin{code}
+    extr : forall {h} -> [ <$ L $>23 (su h) >> (Del23 (su h) ^ <^ L ^>P) ]
+    extr {ze} (no2 lr r no0)        = inl lr -\ r
+    extr {ze} (no3 lp p pr r no0)   = inr (no2 lp p pr) -\ r
+    extr {su h} (no2 lp p pu)       with extr pu
+    ... | pr -\ r = rd (t2d (lp \\ p \\ pr)) -\ r
+    extr {su h} (no3 lp p pq q qu)  with extr qu
+    ... | qr -\ r = t3r (lp \\ p \\ t2d (pq \\ q \\ qr)) -\ r
+\end{code}
+
+To delete a key from between two trees, we extract the rightmost key
+from the left tree, then weaken the bound on the right tree
+(traversing is left spine only). Again, we are sure that if the height
+remains the same, we shall deliver a 2-node.
+
+\begin{code}
+    delp : forall {h} -> [ (<$ L $>23 h ^ <$ L $>23 h) >> Re2 h ]
+    delp {ze}    {lu}  (no0 \\ p \\ no0) = inl la transTB {lu} (via p) ra
+    delp {su h}        (lp \\ p \\ pu) with extr lp
+    ... | lr -\ r = d2t (lr \\ r \\ weak pu) where
+      weak : forall {h u} -> <$ L $>23 h (tb p / u) -> <$ L $>23 h (tb r / u)
+      weak {ze} {u}  no0                  = la transTB {tb r / u} (via p) ra
+      weak {su h}    la pq \\ q \\ qu ra  = la weak pq \\ q \\ qu ra
+\end{code}
+
+Now that we can remove a key, we need only find the key to remove. I
+have chosen to delete the topmost occurrence of the given key, and to
+return the tree unscathed if the key does not occur at all.
+
+\begin{code}
+    del23 : forall {h} -> [ <$ L $>iI >> <$ L $>23 h >> Del23 h ]
+    del23 {ze}   _           no0                  = inr la ! ra
+    del23 {su h} <$ y $>io   la lp \\ p \\ pu ra  with decEq y p
+    del23 {su h} <$ .p $>io  (no2 lp p pu)        | inl it
+      = rd (delp (lp \\ p \\ pu))
+    del23 {su h} <$ .p $>io  (no3 lp p pq q qu)   | inl it
+      = r3t (delp (lp \\ p \\ pq) \\ q \\ qu)
+    del23 {su h} <$ y $>io   la lp \\ p \\ pu ra  | inr _ with owoto y p
+    del23 {su h} <$ y $>io   (no2 lp p pu)        | inr _ | le
+      = rd (d2t (del23 <$ y $>io lp \\ p \\ pu))
+    del23 {su h} <$ y $>io   (no2 lp p pu)        | inr _ | ge
+      = rd (t2d (lp \\ p \\ del23 <$ y $>io pu))
+    del23 {su h} <$ y $>io   (no3 lp p pq q qu)   | inr _ | le
+      = r3t (d2t (del23 <$ y $>io lp \\ p \\ pq) \\ q \\ qu)
+    del23 {su h} <$ y $>io   (no3 lp p pq q qu)   | inr _ | ge with decEq y q
+    del23 {su h} <$ .q $>io  (no3 lp p pq q qu)   | inr _ | ge | inl it
+      = t3r (lp \\ p \\ delp (pq \\ q \\ qu))
+    del23 {su h} <$ y $>io   (no3 lp p pq q qu)   | inr _ | ge | inr _ with owoto y q
+    del23 {su h} <$ y $>io   (no3 lp p pq q qu)   | inr _ | ge | inr _ | le
+      = r3t (t2d (lp \\ p \\ del23 <$ y $>io pq) \\ q \\ qu)
+    del23 {su h} <$ y $>io   (no3 lp p pq q qu)   | inr _ | ge | inr _ | ge
+      = t3r (lp \\ p \\ t2d (pq \\ q \\ del23 <$ y $>io qu))
+\end{code}
 
 \section{Discussion}
 
