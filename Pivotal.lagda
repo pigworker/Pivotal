@@ -134,6 +134,20 @@ container-like datatypes ensuring that elements are in increasing
 order, good for intervals, ordered lists, binary search trees, and
 more besides.
 
+This paper is a literate Agda program. The entire development is available
+at \url{https://github.com/pigworker/Pivotal}. As well as making the headline
+contributions
+\begin{itemize}
+\item a datatype-generic treatment of ordering invariants and operations
+  which respect them
+\item a technique for hiding proofs from program texts
+\item a precise implementation of insertion and deletion for 2-3 trees 
+\end{itemize}
+I take the time to explore the design space, reporting a selection of
+the wrong turnings and false dawns I encountered on my journey to these
+results. I try to extrapolate transferable design principles, so that
+others in future may suffer less than I.
+
 %format id = "\F{id}"
 %format pattern = "\mathkw{pattern}"
 %format constructor = "\mathkw{constructor}"
@@ -205,11 +219,11 @@ So tt  = One
 So ff  = Zero
 \end{code}
 
-A set |P| which can evaluate either to |Zero| or to |One| might be
-thought of as `propositional' in the sense that we are unlikely to
-want to \emph{distinguish} its inhabitants. Correspondingly, we might
-prefer not even to \emph{see} its inhabitants. We may define a wrapper
-type for such propositions whose sole purpose is to hide their proofs.
+A set |P| which evaluates to |Zero| or to |One| might be
+considered `propositional' in that we are unlikely to
+want to \emph{distinguish} its inhabitants. We might even
+prefer not even to \emph{see} its inhabitants. I define a wrapper
+type for propositions whose purpose is to hide proofs.
 
 %format <P = "\D{\ulcorner}\!\!"
 %format P> = "\!\!\D{\urcorner}"
@@ -219,22 +233,23 @@ type for such propositions whose sole purpose is to hide their proofs.
 \begin{code}
 record <P_P> (P : Set) : Set where
   constructor !
-  field
-    {{prf}} : P
+  field {{prf}} : P
 \end{code}
 
 Agda uses braces to indicate that an argument or field is to be
 suppressed by default in program texts and inferred somehow by the
 typechecker. Single-braced variables are solved by unification, in the
-tradition of Milner. The doubled braces indicate \emph{instance arguments},
-which are inferred by \emph{contextual search}: if there is just one candidate
-hypothesis which can take the place of an instance argument, it is silently
-filled in, allowing us a tiny bit of proof automation.
+tradition of Milner. Doubled braces indicate \emph{instance arguments},
+inferred by \emph{contextual search}: if just one
+hypothesis can take the place of an instance argument, it is silently
+filled in, allowing us a tiny bit of proof
+automation~\cite{DBLP:conf/icfp/DevrieseP11}.
 If an inhabitant of |<P So b P>| is required, we may write |!| to
 indicate that we expect the truth of |b| to be known.
 
 Careful positioning of instance arguments seeds the context with useful
-information. We may hypothesize over them quietly:
+information. We may hypothesize over them quietly, and support forward
+reasoning with a `therefore' operator.
 %format => = "\F{\Rightarrow}"
 %format _=>_ = _ => _
 %format :- = "\F{\therefore}"
@@ -243,25 +258,18 @@ information. We may hypothesize over them quietly:
 _=>_ : Set -> Set -> Set
 P => T = {{p : P}} -> T
 infixr 3 _=>_
-\end{code}
-Forward reasoning can then be supported by a `therefore' operator.
-\begin{code}
+
 _:-_ : forall {P T} -> <P P P> -> (P => T) -> T
 ! :- t = t
 \end{code}
 
 This apparatus can give the traditional conditional a subtly more
 informative type, thus:
-
 \begin{code}
-not : Two -> Two
-not tt  = ff
-not ff  = tt
-\end{code}
+not : Two -> Two ; not tt  = ff ; not ff  = tt
 
-\begin{code}
-if_then_else_ :  {X : Set}(b : Two) ->
-                 (So b => X) -> (So (not b) => X) -> X
+if_then_else_ :
+  forall {X} b -> (So b => X) -> (So (not b) => X) -> X
 if tt  then t else f = t
 if ff  then t else f = f
 infix 1 if_then_else_
@@ -275,12 +283,14 @@ magic :  {X : Set} -> Zero => X
 magic {{()}}
 \end{code}
 using Agda's \emph{absurd pattern} to mark the impossible instance argument
-which shows that no value need be returned. E.g., we may write
-%format test = "\F{test}"
+which shows that no value need be returned. E.g.,
+|if tt then ff else magic : Two|.
+%if False
 \begin{code}
 test : Two
 test = if tt then ff else magic
 \end{code}
+%endif
 
 Instance arguments are not a perfect fit for proof search: they were intended
 as a cheap alternative to type classes, hence the requirement for exactly
@@ -338,12 +348,12 @@ it. The irony is completed by noting that the latter sorting algorithm
 is the archetype of structural recursion in Rod Burstall's development
 of the concept \cite{burstall:induction}. Binary search trees have
 empty leaves and nodes labelled with elements which act like \emph{pivots}
-in quicksort: the left subtree stores elements which precede the pivot
-in the order, the right subtree elements which follow it. Surely this
-invariant is crying out to be captured in a dependent type! Let us search
+in quicksort: the left subtree stores elements which precede the pivot,
+the right subtree elements which follow it. Surely this
+invariant is crying out to be a dependent type! Let us search
 for a type for search trees.
 
-We could, of course, choose to define binary search trees as ordinary
+We could, of course, define binary search trees as ordinary
 node-labelled trees with parameter |P| giving the type of pivots:
 %format TrS = "\D{Tree}"
 %format lfS = "\C{leaf}"
@@ -351,15 +361,14 @@ node-labelled trees with parameter |P| giving the type of pivots:
 %format IsBST = "\F{IsBST}"
 
 \begin{code}
-  data TrS : Set where
-    lfS  : TrS
-    ndS  : TrS -> P -> TrS -> TrS
+  data TrS : Set  where
+    lfS  : TrS ;  ndS  : TrS -> P -> TrS -> TrS
 \end{code}
-We might then introduce the invariant as a predicate |IsBST : TrS -> Set|.
-We could then implement insertion in our usual way, and then prove separately
+We might then define the invariant as a predicate |IsBST : TrS -> Set|,
+implement insertion in our usual way, and prove separately
 that our program maintains the invariant. However, the joy of dependently
-typed programming is that working with refined types for the data themselves
-can often alleviate and sometimes obviate the burden of proof. Let us try to
+typed programming is that refining the types of the data themselves
+can often alleviate or obviate the burden of proof. Let us try to
 bake the invariant in.
 
 \paragraph{What should the type of a subtree tell us?} If we want to
@@ -378,9 +387,8 @@ tree to tell us its extreme elements (or that it is empty).
 %format - = "\!\C{{}- }\!"
 %format _-_ = "\_" - "\_"
 \begin{code}
-  data STRange : Set where
-    empty  : STRange
-    _-_    : P -> P -> STRange
+  data STRange : Set    where
+    empty  : STRange ;  _-_    : P -> P -> STRange
   infix 9 _-_
 \end{code}
 
@@ -394,9 +402,8 @@ search tree and compute its range if it has one. Of course, we must
 account for the possibility of invalidity, so let us admit failure in
 the customary manner.
 \begin{code}
-  data Maybe (X : Set) : Set where
-    yes  : X -> Maybe X
-    no   : Maybe X
+  data Maybe (X : Set) : Set  where
+    yes  : X -> Maybe X ;     no   : Maybe X
 
   _?>_ : forall {X} -> Two -> Maybe X -> Maybe X
   b  ?> mx  = if b then mx else no
@@ -503,25 +510,25 @@ dependently typed programming that will help us to do better?
 
 \section{Why Measure When You Can Require?}
 
-In the previous section, we got the wrong answer because we asked the
+Last section, we got the wrong answer because we asked the
 wrong question: ``What should the type of a subtree tell us?''
 somewhat presupposes that information bubbles outward from subtrees to
-the nodes which contain them. As functional programmers in Milner's
+the nodes which contain them. In Milner's
 tradition, we are used to synthesizing the type of a thing. Moreover,
-the very syntax we use for |data| declarations treats the index
-delivered from each constructor as some sort of output. It seems
-natural to take datatype indices as some sort of measure of the data,
-which is all very well for the length of a vector, but when the
-measurement is computationally intricate, as in the case of computing
-a search tree's extrema, programming becomes vexed by the need to
-prove theorems about the measuring functions. The presence of `green
+the very syntax of |data| declarations treats the index
+delivered from each constructor as an output. It seems
+natural to treat datatype indices as measures of the data.
+That is all very well for the length of a vector, but when the
+measurement is intricate, as when computing
+a search tree's extrema, programming becomes vexed by the need for
+theorems about the measuring functions. The presence of `green
 slime'---defined functions in the return types of constructors---is a
-danger sign in type design.
+danger sign.
 
-We can, however, take an alternative view of types, not as synthesized
+We can take an alternative view of types, not as synthesized
 measurements of data, bubbled outward, but as checked
 \emph{requirements} of data, pushed \emph{inward}. To enforce the
-invariant, let us rather ask the question ``What should we tell the
+invariant, let us rather ask ``What should we tell the
 type of a subtree?''.
 
 The elements of the left subtree must precede the pivot in the order;
@@ -530,24 +537,17 @@ on a subtree amount to an \emph{interval} in which its elements must
 fall. As any element can find a place somewhere in a search tree, we
 shall need to consider unbounded intervals also. We can extend any
 type with top and bottom elements as follows.
-
 %format <$  = "\!\!"
 %format $>D = "\D{\!\!\!_\bot^\top}"
 %format <$_$>D = "\_" $>D
 %format tb = "\C{\scriptscriptstyle{\#}\!\!}"
 %format top = "\C{\top}"
 %format bot = "\C{\bot}"
-
 \begin{code}
 data <$_$>D (P : Set) : Set where
-  top  :       <$ P $>D
-  tb   : P ->  <$ P $>D
-  bot  :       <$ P $>D
+  top  :       <$ P $>D ; tb   : P ->  <$ P $>D ;  bot  :       <$ P $>D
 \end{code}
-
-Correspondingly, we can extend the order, putting |top| at the
-top and |bot| at the bottom.
-
+and extend the order accordingly:
 %format $>B = "\F{\!_\bot^\top}"
 %format <$_$>B = "\_" $>B
 \begin{code}
@@ -584,9 +584,11 @@ type. The |leaf| constructor now has many types, indicating all its elements
 satisfy any requirements. We also gain |BST bot top| as the general type of
 binary search trees for |P|. Unfortunately, we have been forced to make the
 pivot value |p|, the first argument to |pnode|, as the type of the subtrees
-now depends on it. Luckily, Agda now supports \emph{pattern synonyms}, allowing
+now depends on it. Luckily, Agda now supports
+\emph{pattern synonyms}, allowing
 linear macros to abbreviate both patterns on the left and pattern-like
-expressions on the right. We may fix up the picture as follows:
+expressions on the right~\cite{aitken.reppy}.
+We may fix up the picture:
 \begin{code}
   pattern node lp p pu = pnode p lp pu
 \end{code}
@@ -648,15 +650,11 @@ of dependent pairs: let us have them.
 \begin{code}
 record Sg (S : Set)(T : S -> Set) : Set where
   constructor _/_
-  field
-    fst : S
-    snd : T fst
+  field fst : S ; snd : T fst
 open Sg
-infixr 5 _/_
-
 _*_ : Set -> Set -> Set
 S * T = Sg S \ _ -> T
-infixr 5 _*_
+infixr 5 _*_ _/_
 \end{code}
 %if False
 \begin{code}
@@ -665,18 +663,17 @@ REL P = P * P -> Set
 \end{code}
 %endif
 
-Now, let us suppose we have some `less or equal' ordering relation
-|L : REL P|. Let us introduce the natural numbers by way of example,
+Now, suppose we have some `less or equal' ordering
+|L : REL P|. Let us have natural numbers by way of example,
 %format Le = "\F{L}_{" Nat "}"
 %format <= = "\F{\le}"
 %format _<=_ = "\_\!" <= "\!\_"
-\begin{spec}
-data Nat : Set where
-  ze : Nat
-  su : Nat -> Nat
-\end{spec}
-and define
+%format NatD = Nat
+%format zeD = ze
+%format suD = su
 \begin{code}
+data NatD : Set where zeD : NatD ; suD : NatD -> NatD
+
 Le : REL Nat
 Le (x / y) = x <= y where
   _<=_ : Nat -> Nat -> Set
@@ -685,20 +682,17 @@ Le (x / y) = x <= y where
   su x  <= su y  =  x <= y
 \end{code}
 
-The information we shall need just corresponds to the totality
+The information we shall need is exactly the totality
 of |L|: for any given |x| and |y|, |L| must hold \emph{one way or the other}.
 We can use disjoint sum types for that purpose
-%format OWOTO = "\D{OWOTO}"
+%format OWOTO = "\F{OWOTO}"
 %format le = "\C{le}"
 %format ge = "\C{ge}"
 \begin{code}
-data _+_ (S T : Set) : Set where
-  inl : S -> S + T
-  inr : T -> S + T
+data _+_ (S T : Set) :  Set where
+  inl : S -> S + T ;    inr : T -> S + T
 infixr 4 _+_
-\end{code}
-allowing us to define
-\begin{code}
+
 OWOTO : forall {P}(L : REL P) -> REL P
 OWOTO L (x / y) = <P L (x / y) P> + <P L (y / x) P>
 
@@ -733,7 +727,7 @@ opportunity to add propositional wrapping, to help us hide ordering proofs.
 <^ L ^>P xy = <P <$ L $>F xy P>
 \end{code}
 The type |<^ L ^>P (x / y)| thus represents ordering evidence on bounds
-which admits matching and construction by |!|, without further elaboration.
+with matching and construction by |!|, unaccompanied.
 
 
 \section{Equipment for Relations and Other Families}
@@ -758,9 +752,7 @@ _-+-_ _-*-_ _>>_ : {I : Set} ->
 (S -+- T)  i = S i + T i
 (S -*- T)  i = S i * T i
 (S >> T)   i = S i -> T i
-infixr 3 _-+-_
-infixr 4 _-*-_
-infixr 2 _>>_
+infixr 3 _-+-_ ; infixr 4 _-*-_ ; infixr 2 _>>_
 \end{code}
 
 Pointwise implication will be useful for writing \emph{index-respecting}
@@ -774,16 +766,14 @@ It is useful to be able to state that something holds at every index
 With this apparatus, we can quite often talk about indexed things without
 mentioning the indices, resulting in code which almost looks like its simply
 typed counterpart. You can check that for any |S| and |T|,
-\[
   |inl : [ S >> S -+- T ]|
-\]
+and so forth.
 %if False
 \begin{code}
 mytest : forall {I}{S T : I -> Set} -> [ S >> S -+- T ]
 mytest = inl
 \end{code}
 %endif
-and other similar examples.
 
 
 \section{Working with Bounded Sets}
@@ -856,8 +846,8 @@ we achieve victory, at last!
 \end{code}
 
 The evidence generated by testing |owoto y p| is just what is needed
-to enable insertion in the appropriate subtree. We have found a method
-which seems to work! But I fear we should not get too excited.
+to access the appropriate subtree. We have found a method
+which seems to work! But do not write home yet.
 
 \section{The Importance of Local Knowledge}
 
@@ -883,20 +873,19 @@ balanced, then we have a little local difficulty:
   rotR t                           = t
 \end{spec}
 Agda rejects the outer |node| of the rotated tree for lack of evidence.
-If I expand the pattern synonyms and reveal the instance arguments, we can
-see what is missing.
+I expand the pattern synonyms to show what is missing.
 \begin{code}
   rotR : [ BST >> BST ]
   rotR  (pnode
     ((! {{lp}} / pnode ((! {{lm}} / lt) \\ m \\ (! {{mp}} / mt)))
     \\ p \\ (! {{pu}} / rt))) = pnode ((! {{lm}} / lt) \\ m \\
-    (! {{(HOLE 2)}} / pnode ((! {{mp}} / mt) \\ p \\ (! {{pu}} / rt))))
+    (! {{(HOLE 0)}} / pnode ((! {{mp}} / mt) \\ p \\ (! {{pu}} / rt))))
   rotR t = t
 \end{code}
 We can discard the non-local ordering evidence |lp : <$ L $>F (l / tb p)|,
-but now we need the non-local |(HOLE 2) : <$ L $>F (tb m / u)| and we do not
-have it. Of course, we can prove this goal from |mp| and |pu| if we know
-that |L| is transitive, but if we want to make less work for ourselves, we
+but now we need the non-local |(HOLE 0) : <$ L $>F (tb m / u)| that we lack.
+Of course, we can prove this goal from |mp| and |pu| if
+|L| is transitive, but if we want to make less work, we
 should rather not demand non-local ordering evidence in the first place.
 
 Looking back at the type of |node|, note that the indices at which we
@@ -947,7 +936,7 @@ Rotation becomes very easy, with no proofs to rearrange!
 \end{code}
 
 We have arrived at a neat way to keep a search tree in order,
-storing pivot elements at nodes and ordering evidence in leaves. Phew!
+storing pivot elements at nodes and proofs in leaves. Phew!
 
 %format OList = "\D{OList}"
 %format nil = "\C{nil}"
@@ -965,6 +954,9 @@ subtree of |node|, yielding a sensible |cons|.
     nil   :  (<^ L ^>P >> OList) lu
     cons  :  (<^ L ^>P ^ OList >> OList) lu 
 \end{code}
+These are exactly the ordered lists Sam Lindley and I defined in
+Haskell~\cite{DBLP:conf/haskell/LindleyM13}, but now we can see where the
+definition comes from.
 
 By figuring out how to build ordered binary search trees, we have
 actually discovered how to build quite a variety of in-order data
@@ -997,7 +989,8 @@ then flatten them \emph{all}.
 If we want to see how to make the treatment of ordered container structures
 systematic, we shall need some datatype-generic account of recursive types
 with places for elements. A compelling starting point is the `PolyP' system
-of Patrik Jansson and Johan Jeuring, which we try to bottle as a
+of Patrik Jansson and Johan Jeuring~\cite{DBLP:conf/popl/JanssonJ97},
+which we can bottle as a
 universe---a system of codes for types---in Agda, as follows:
 \begin{code}
 data JJ : Set where
@@ -1008,8 +1001,9 @@ infixr 5 _q*_
 \end{code}
 
 The |qR| stands for `recursive substructure' and the |qP| stands for
-`parameter'---the type of elements stored in the container. We can thus
-interpret a code in |JJ| as an operator filling in the meaning of those
+`parameter'---the type of elements stored in the container. Given meanings
+for these, we
+interpret a code in |JJ| as a set.
 two codes.
 \begin{code}
 <!_!>JJ : JJ -> Set -> Set -> Set
@@ -1082,22 +1076,15 @@ map : forall {F A B} ->
 map = traverse idApp
 \end{code}
 
-We can equally well specialise |traverse| to a monoidal |crush|
+We can equally well specialise |traverse| to a monoidal |crush|.
 \begin{code}
 record Monoid (X : Set) : Set where
-  field
-    neutral : X
-    combine : X -> X -> X
+  field neutral : X ;  combine : X -> X -> X
+  monApp : Applicative (\ _ -> X)
+  monApp = record {pure = \ _ -> neutral ; ap = combine}
+  crush : forall {P F} -> (P -> X) -> MuJJ F P -> X
+  crush = traverse {B = Zero} monApp
 open Monoid
-
-monApp : forall {X} ->
-  Monoid X -> Applicative (\ _ -> X)
-monApp m = record
-  {pure = \ _ -> neutral m ; ap = combine m}
-
-crush : forall {P X F} ->
-  Monoid X -> (P -> X) -> MuJJ F P -> X
-crush m = traverse {B = Zero} (monApp m)
 \end{code}
 
 Endofunctions on a given set form a monoid with respect to
@@ -1251,7 +1238,7 @@ bound the substructures appropriately.
 Meanwhile, the need in nodes to bound the left substructure's type
 with the pivot value disrupts the left-to-right spatial ordering of the
 data, but we can apply a little cosmetic treatment, thanks to the
-availability of \emph{pattern synonyms}~\cite{aitken.reppy}.
+availability of \emph{pattern synonyms}.
 
 
 %format treeOSO = "\F{tree}"
@@ -1546,7 +1533,8 @@ flapp {F} qR    (la t ra         \\ p \\ ys)  = flapp F (t \\ p \\ ys)
 flapp q1        (!               \\ p \\ ys)  = p // ys
 flapp (S q+ T)  (inl s           \\ p \\ ys)  = flapp S (s \\ p \\ ys)
 flapp (S q+ T)  (inr t           \\ p \\ ys)  = flapp T (t \\ p \\ ys)
-flapp (S q^ T)  ((s \\ p' \\ t)  \\ p \\ ys)  = flapp S (s \\ p' \\ flapp T (t \\ p \\ ys))
+flapp (S q^ T)  ((s \\ p' \\ t)  \\ p \\ ys)
+  = flapp S (s \\ p' \\ flapp T (t \\ p \\ ys))
 \end{code}
 To finish the job, we need to work our way down the right spine of the
 input in search of its rightmost element, which initialises |p|.
@@ -1739,7 +1727,8 @@ for finitary data structures with computable conditions on indices.
 The |treeIO| operation carries over unproblematically, with more indexed
 input but plain output.
 \begin{code}
-treeIO :  forall {I P F}{L : REL P}{i : I} -> [ MuIO F L i >> <$ L $>iT ]
+treeIO :  forall {I P F}{L : REL P}{i : I} ->
+  [ MuIO F L i >> <$ L $>iT ]
 \end{code}
 %if False
 \begin{code}
@@ -1759,7 +1748,8 @@ treeIO {F = F}{L = L}{i = i} la t ra = go (F i) t where
 %format flattenIO = "\F{flatten}"
 Similarly, |flattenIO| works (efficiently) just as before.
 \begin{code}
-flattenIO :  forall {I P F}{L : REL P}{i : I} -> [ MuIO F L i >> <$ L $>i+ ]
+flattenIO :  forall {I P F}{L : REL P}{i : I} ->
+  [ MuIO F L i >> <$ L $>i+ ]
 \end{code}
 %if False
 \begin{code}
@@ -1791,7 +1781,10 @@ redundancy.  A standard way to achieve this is to insist on uniform height, but
 allow internal nodes to have
 either one pivot and two subtrees, or two pivots and three subtrees.
 We may readily encode these \emph{2-3 trees} and give pattern synonyms
-for the three kinds of structure.
+for the three kinds of structure. This approach is much
+like that of \emph{red-black} (effectively, 2-3-4) trees, for which
+typesafe balancing has a tradition going back to
+Hongwei Xi and Stefan Kahrs \cite{xi99waaapl,DBLP:journals/jfp/Kahrs01}.
 %format $>23 = "\F{\!\!\!^{23}}"
 %format <$_$>23 = "\_" $>23
 %format no0 = "\C{no}_{\C{0}}"
@@ -1983,11 +1976,16 @@ decidable equality on keys.
 \end{code}
 %endif
 
+Correspondingly, a small amount of theorem proving is indicated, ironically,
+to show that it is sound to throw information about local ordering away.
+
+\paragraph{Transitivity for bounds.}
 Transitivity we may readily lift to bounds with a key in the middle:
 %format via = "\C{via}"
 \begin{spec}
     pattern via p = p / ! / !
 \end{spec}
+%format transTB = "\F{trans}_{\F{\bot}}^{\F{\top}}"
 \begin{code}
     transTB : [ (<^ L ^>P ^ <^ L ^>P) >> <^ L ^>P ]
     transTB {_     / top}   _         = !
@@ -1998,7 +1996,7 @@ Transitivity we may readily lift to bounds with a key in the middle:
     transTB {tb l  / bot}   (via _)   = magic
 \end{code}
 
-
+\paragraph{What is the type of deletion?}
 When we remove an element from a 2-3 tree of height $n$, the tree will
 often stay the same height, but there will be situations in which it
 must get shorter, becoming a 3-node or a leaf, as appropriate.
@@ -2029,6 +2027,7 @@ is below the upper bound (which will be the deleted key). Both of these operatio
 will need to reconstruct trees with one short subtree, so let us build `smart
 constructors' for just that purpose, then return to the main problem.
 
+\paragraph{Rebalancing reconstructors.}
 %format Re2 = "\F{Re2}"
 %format d2t = "\F{d2t}"
 %format t2d = "\F{t2d}"
@@ -2043,28 +2042,32 @@ have only a 2-node, we must give a short answer.
     Re2 h =  Short23 (su h) -+- (<$ L $>23 h ^ <$ L $>23 h)
 
     d2t :  forall {h} -> [ (Del23 h ^ <$ L $>23 h) >> Re2 h ]
-    d2t {h}     (inr lp  \\ p \\ pu)                = inr (lp \\ p \\ pu)
+    d2t {h}     (inr lp  \\ p \\ pu)           = inr (lp \\ p \\ pu)
     d2t {ze}    (inl ()  \\ p \\ pu)
-    d2t {su h}  (inl lp  \\ p \\ no2 pq q qu)       = inl (no3 lp p pq q qu)
-    d2t {su h}  (inl lp  \\ p \\ no3 pq q qr r ru)  = inr (no2 lp p pq \\ q \\ no2 qr r ru)
+    d2t {su h}  (inl lp  \\ p \\ no2 pq q qu)  = inl (no3 lp p pq q qu)
+    d2t {su h}  (inl lp  \\ p \\ no3 pq q qr r ru)
+      = inr (no2 lp p pq \\ q \\ no2 qr r ru)
 
     t2d :  forall {h} -> [ (<$ L $>23 h ^ Del23 h) >> Re2 h ]
-    t2d {h}     (lp                \\ p \\ inr pu)  = inr (lp \\ p \\ pu)
-    t2d {ze}    (lp                \\ p \\ inl ())
-    t2d {su h}  (no2 ln n np       \\ p \\ inl pu)  = inl (no3 ln n np p pu)
-    t2d {su h}  (no3 lm m mn n np  \\ p \\ inl pu)  = inr (no2 lm m mn \\ n \\ no2 np p pu)
+    t2d {h}     (lp \\ p \\ inr pu)           = inr (lp \\ p \\ pu)
+    t2d {ze}    (lp \\ p \\ inl ())
+    t2d {su h}  (no2 ln n np \\ p \\ inl pu)  = inl (no3 ln n np p pu)
+    t2d {su h}  (no3 lm m mn n np  \\ p \\ inl pu)
+      = inr (no2 lm m mn \\ n \\ no2 np p pu)
 
     rd : forall {h} -> [ Re2 h >> Del23 (su h) ]
     rd (inl s)                = (inl s)
     rd (inr (lp \\ p \\ pu))  = inr (no2 lp p pu)
 \end{code}
-The adaptor |rt| allows us to throw away the knowledge that the full
+The adaptor |rd| allows us to throw away the knowledge that the full
 height reconstruction must be a 2-node if we do not need it, but the
 extra detail allows us to use 2-node reconstructors in the course of
 3-node reconstruction.  To reconstruct a 3-node with one
 possibly-short subtree, rebuild a 2-node containing the suspect, and
 then restore the extra subtree. We thus need to implement the latter.
 
+%format r3t = "\F{r3t}"
+%format t3r = "\F{t3r}"
 \begin{code}
     r3t :  forall {h} -> [ (Re2 h ^ <$ L $>23 h) >> Del23 (su h) ]
     r3t (inr (lm \\ m \\ mp) \\ p \\ pu)    = inr (no3 lm m mp p pu)
@@ -2075,6 +2078,7 @@ then restore the extra subtree. We thus need to implement the latter.
     t3r (lp \\ p \\ inl pu)                 = inr (no2 lp p pu)
 \end{code}
 
+\paragraph{Cutting out the extreme right.}
 We may now implement |extr|, grabbing the rightmost key from a tree. I use
 %format -\ = "\C{\bigtriangleup\!\!\!\!_{\not\;}}"
 %format _-\_ = _ -\ _
@@ -2092,28 +2096,41 @@ to keep the extracted element on the right and hide the ordering proofs.
     ... | qr -\ r = t3r (lp \\ p \\ t2d (pq \\ q \\ qr)) -\ r
 \end{code}
 
-To delete a key from between two trees, we extract the rightmost key
+To delete the pivot key from between two trees, we extract the rightmost key
 from the left tree, then weaken the bound on the right tree
-(traversing is left spine only). Again, we are sure that if the height
+(traversing its left spine only). Again, we are sure that if the height
 remains the same, we shall deliver a 2-node.
-
+%format delp = "\F{delp}"
+%format weak = "\F{weak}"
 \begin{code}
     delp : forall {h} -> [ (<$ L $>23 h ^ <$ L $>23 h) >> Re2 h ]
-    delp {ze}    {lu}  (no0 \\ p \\ no0) = inl la transTB {lu} (via p) ra
+    delp {ze}    {lu}  (no0 \\ p \\ no0) = transTB {lu} (via p) :- inl no0
     delp {su h}        (lp \\ p \\ pu) with extr lp
     ... | lr -\ r = d2t (lr \\ r \\ weak pu) where
       weak : forall {h u} -> <$ L $>23 h (tb p / u) -> <$ L $>23 h (tb r / u)
-      weak {ze} {u}  no0                  = la transTB {tb r / u} (via p) ra
-      weak {su h}    la pq \\ q \\ qu ra  = la weak pq \\ q \\ qu ra
+      weak {ze} {u}  no0 = transTB {tb r / u} (via p) :- no0
+      weak {su h} la pq \\ q \\ qu ra = la weak pq \\ q \\ qu ra
 \end{code}
 
+\paragraph{A remark on weakenings.}
+It may seem regrettable that we have to write |weak|, which is manifestly
+an obfuscated identity function, and programmers who do not wish the ordering
+guarantees are entitled not to pay and not to receive. If we took an extrinsic
+approach to managing these invariants, |weak| would still be present, but it
+would just be the proof of the proposition that you can lower a lower bound
+that you know for a tree. Consequently, the truly regrettable thing about
+|weak| is not that it is written but that it is \emph{executed}. What might
+help is some notion of `propositional subtyping', allowing us to establish
+coercions between types which are guaranteed erasable at runtime because all
+they do is fix up indexing and the associated content-free proof objects.
+
+\paragraph{The completion of deleteion.}
 Now that we can remove a key, we need only find the key to remove. I
 have chosen to delete the topmost occurrence of the given key, and to
 return the tree unscathed if the key does not occur at all.
-
 \begin{code}
     del23 : forall {h} -> [ <$ L $>iI >> <$ L $>23 h >> Del23 h ]
-    del23 {ze}   _           no0                  = inr la ! ra
+    del23 {ze}   _           no0                  = inr no0
     del23 {su h} <$ y $>io   la lp \\ p \\ pu ra  with decEq y p
     del23 {su h} <$ .p $>io  (no2 lp p pu)        | inl it
       = rd (delp (lp \\ p \\ pu))
@@ -2129,14 +2146,92 @@ return the tree unscathed if the key does not occur at all.
     del23 {su h} <$ y $>io   (no3 lp p pq q qu)   | inr _ | ge with decEq y q
     del23 {su h} <$ .q $>io  (no3 lp p pq q qu)   | inr _ | ge | inl it
       = t3r (lp \\ p \\ delp (pq \\ q \\ qu))
-    del23 {su h} <$ y $>io   (no3 lp p pq q qu)   | inr _ | ge | inr _ with owoto y q
-    del23 {su h} <$ y $>io   (no3 lp p pq q qu)   | inr _ | ge | inr _ | le
-      = r3t (t2d (lp \\ p \\ del23 <$ y $>io pq) \\ q \\ qu)
-    del23 {su h} <$ y $>io   (no3 lp p pq q qu)   | inr _ | ge | inr _ | ge
-      = t3r (lp \\ p \\ t2d (pq \\ q \\ del23 <$ y $>io qu))
+    ... | inr _ with owoto y q
+    ... | le = r3t (t2d (lp \\ p \\ del23 <$ y $>io pq) \\ q \\ qu)
+    ... | ge = t3r (lp \\ p \\ t2d (pq \\ q \\ del23 <$ y $>io qu))
 \end{code}
 
+As with insertion, the discipline of indexing by bounds and height is quite
+sufficient to ensure that rebalancing works as required. The proof effort
+is just to reestablish the local ordering invariant around the deleted
+element.
+
+At no point did we need to construct trees with the invariant broken.
+Rather, we chose types which expressed with precision the range of possible
+imbalances arising from a deletion. It is exactly this precision which allowed
+us to build and justify the rebalancing reconstruction operators we reused so
+effectively to avoid an explosion of cases.
+
+
 \section{Discussion}
+
+We have seen \emph{intrinsic} dependently typed
+programming at work. Internalizing ordering and balancing invariants to
+our datatypes, we discovered not an explosion of proof obligations,
+but rather that unremarkable programs check at richer
+types because they \emph{and accountably} do the testing which
+justifies their choices.
+
+Of course, to make the programs fit neatly into the types, we must take
+care of how we craft the latter. I will not pretend for one moment that
+the good definition is the first to occur to me, and it is certainly the
+case that one is not automatically talented at desigining dependent types,
+even when one is an experienced programmer in Haskell or ML. There is a
+new skill to learn. Hopefully, by taking the time to explore the design
+space for ordering invariants, I have exposed some transferable lessons.
+In particular, we must overcome our type inference training and learn to
+see types as pushing requirements inwards, as well as pulling guarantees
+out.
+
+It is positive progress that work is shifting from the program definitions
+to the type definitions, cashing out in our tools as considerable
+mechanical assistance in program construction. A precise type structures
+its space of possible programs so tightly that an ineractive editor can
+often offer us a small choice of plausible alternatives, usually including
+the thing we want. It is exhilarating being drawn to one's code by the
+strong currents of a good design. But that happens only in the last
+iteration: we are just as efficiently dashed against the rocks by a bad
+design, and the best tool to support recovery remains, literally, the
+drawing board. We should give more thought to machine-assisted exploration.
+
+A real pleasure to me in doing this work was the realisation that I
+not only had `a good idea for ordered lists' and `a good idea for
+ordered trees', but that they were the \emph{same} idea, and moreover that
+I could implement the idea in a datatype-generic manner. The key underpinning
+technology is first-class datatype description. By the end of the paper,
+we had just one main datatype |MuIO|, whose sole role was to `tie the knot'
+in a recursive node structure determined by a computable code. The resulting
+raw data are strewn with artefacts of the encoding, but pattern synonyms
+do a remarkably good job of recovering the appearance of bespoke constructors
+whenever we work specifically to one encoded datatype.
+
+Indeed, there is clearly room for even more datatype-generic
+technology in the developments given here. On the one hand, the
+business of finding the substructure in which a key belongs, whether
+for insertion or deletion, is crying out for a generic construction of
+G\'erard Huet's `zippers'~\cite{huet:zipper}.  Moreover, the treatment
+of ordered structures as variations on the theme of the binary search
+tree demands consideration in the framework of `ornaments', as studied
+by Pierre-\'Evariste Dagand and others~\cite{DBLP:conf/icfp/DagandM12}.
+Intuitively, it seems likely that the |IO| universe corresponds closely
+to the ornaments on node-labelled binary trees which add only finitely
+many bits (because |IO| has |q+| rather than a general |Sg|). Of course,
+one node of a |MuIO| type corresponds to a region of nodes in a tree:
+perhaps ornaments, too, should be extend to allow the unrolling of
+recursive structure.
+
+Having developed a story about ordering invariants to the extent that
+our favourite sorting algorithms silently establish them, we still do
+not have total correctness intrinsically. \emph{What about permutation?}
+It has always maddened me that the insertion and flattening operations
+manifestly construct their output by rearranging their input: the proof
+that sorting permutes should thus be \emph{by inspection}. Experiments
+suggest that many sorting algorithms can be expressed in a
+domain specific language whose type system is linear for keys. We should
+be able to establish a general purpose permutation invariant for this
+language, once and for all, by a logical relations argument. We are used
+to making sense of programs, but it is we who make the sense, not the
+programs. It is time we made programs make their own sense.
 
 
 \bibliographystyle{plainnat} % basic style, author-year citations
