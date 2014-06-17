@@ -161,7 +161,7 @@ others in future may suffer less than I.
 %format * = "\F{\times}"
 %format _*_ = "\_\!" * "\!\_"
 %format / = "\!\!\C{,}\!"
-%format _/_ = "\_" / "\_"
+%format _/_ = "\_\,\," / "\,\_"
 %format fst = "\F{\uppi_1}"
 %format snd = "\F{\uppi_2}"
 %format Zero = "\D{0}"
@@ -227,7 +227,7 @@ type for propositions whose purpose is to hide proofs.
 
 %format <P = "\D{\ulcorner}\!\!"
 %format P> = "\!\!\D{\urcorner}"
-%format <P_P> = <P _ P>
+%format <P_P> = <P "\," _ "\," P>
 %format prf = "\F{prf}"
 %format ! = "\C{!}"
 \begin{code}
@@ -239,13 +239,13 @@ record <P_P> (P : Set) : Set where
 Agda uses braces to indicate that an argument or field is to be
 suppressed by default in program texts and inferred somehow by the
 typechecker. Single-braced variables are solved by unification, in the
-tradition of Milner. Doubled braces indicate \emph{instance arguments},
-inferred by \emph{contextual search}: if just one
-hypothesis can take the place of an instance argument, it is silently
-filled in, allowing us a tiny bit of proof
-automation~\cite{DBLP:conf/icfp/DevrieseP11}.
-If an inhabitant of |<P So b P>| is required, we may write |!| to
-indicate that we expect the truth of |b| to be known.
+tradition of Milner~\cite{DBLP:journals/jcss/Milner78}. Doubled braces
+indicate \emph{instance arguments}, inferred by \emph{contextual
+search}: if just one hypothesis can take the place of an instance
+argument, it is silently filled in, allowing us a tiny bit of proof
+automation~\cite{DBLP:conf/icfp/DevrieseP11}.  If an inhabitant of |<P
+So b P>| is required, we may write |!| to indicate that we expect the
+truth of |b| to be known.
 
 Careful positioning of instance arguments seeds the context with useful
 information. We may hypothesize over them quietly, and support forward
@@ -385,7 +385,7 @@ tree to tell us its extreme elements (or that it is empty).
 %format STRange = "\D{STRange}"
 %format empty = "\C{\emptyset}"
 %format - = "\!\C{{}- }\!"
-%format _-_ = "\_" - "\_"
+%format _-_ = "\_\," - "\,\_"
 \begin{code}
   data STRange : Set    where
     empty  : STRange ;  _-_    : P -> P -> STRange
@@ -435,7 +435,7 @@ check and the means to compute the output range if successful.
 
 %format leftOK = "\F{lOK}"
 %format rightOK = "\F{rOK}"
-%format nodeRange = "\F{rOut}"
+%format nodeRange = "\F{outRan}"
 \begin{code}
   leftOK   : STRange -> P -> Two
   leftOK   empty    p  = tt
@@ -473,8 +473,8 @@ insertion? Rod Burstall's implementation is as follows
 \end{code}
 but we shall have to try a little harder to give a type to |insertS|,
 as we must somehow negotiate the ranges. If we are inserting a new
-extremum, then the output range will be wider than the input range.
-%format oRange = "\F{oRange}"
+extremum, then the range will be wider afterwards than before.
+%format oRange = "\F{insRan}"
 \begin{code}
   oRange : STRange -> P -> STRange
   oRange empty    y = y - y
@@ -538,8 +538,8 @@ fall. As any element can find a place somewhere in a search tree, we
 shall need to consider unbounded intervals also. We can extend any
 type with top and bottom elements as follows.
 %format <$  = "\!\!"
-%format $>D = "\D{\!\!\!_\bot^\top}"
-%format <$_$>D = "\_" $>D
+%format $>D = "\D{\!\!_\bot^\top}"
+%format <$_$>D = "\_\," $>D
 %format tb = "\C{\scriptscriptstyle{\#}\!\!}"
 %format top = "\C{\top}"
 %format bot = "\C{\bot}"
@@ -548,8 +548,8 @@ data <$_$>D (P : Set) : Set where
   top  :       <$ P $>D ; tb   : P ->  <$ P $>D ;  bot  :       <$ P $>D
 \end{code}
 and extend the order accordingly:
-%format $>B = "\F{\!_\bot^\top}"
-%format <$_$>B = "\_" $>B
+%format $>B = "\F{\!\!_\bot^\top}"
+%format <$_$>B = "\_\," $>B
 \begin{code}
 <$_$>B : forall {P} -> (P -> P -> Two) -> <$ P $>D -> <$ P $>D -> Two
 <$ le $>B _       top     = tt
@@ -623,15 +623,15 @@ ordering \emph{relation}. Let us now tidy up this detail.
 \section{One Way Or The Other}
 
 %format REL = "\F{Rel}"
-%format ^>P = "\F{\!\!\!\urcorner}"
+%format ^>P = "\F{\!\!\urcorner}"
 %format <^ = "\F{\ulcorner\!\!\!}"
-%format <^_^>P = <^ _ ^>P
+%format <^_^>P = <^ _ "\," ^>P
 %format $>F = "\F{\!^\top_\bot}"
 %format <$_$>F = _ $>F
-%format $>II = "\D{\!\!\!^\bullet}"
-%format <$_$>II = _ $>II
-%format $>ii = "\C{\!\!\!^\circ}"
-%format <$_$>ii = _ $>ii
+%format $>II = "\F{\!\!^\bullet}"
+%format <$_$>II = _ "\," $>II
+%format $>ii = "\C{\!\!^\circ}"
+%format <$_$>ii = _ "\," $>ii
 %format ival = "\F{ival}"
 %format ihi = "\F{ihi}"
 %format ilo = "\F{ilo}"
@@ -650,7 +650,9 @@ of dependent pairs: let us have them.
 \begin{code}
 record Sg (S : Set)(T : S -> Set) : Set where
   constructor _/_
-  field fst : S ; snd : T fst
+  field
+    fst : S
+    snd : T fst
 open Sg
 _*_ : Set -> Set -> Set
 S * T = Sg S \ _ -> T
@@ -682,10 +684,10 @@ Le (x / y) = x <= y where
   su x  <= su y  =  x <= y
 \end{code}
 
-The information we shall need is exactly the totality
-of |L|: for any given |x| and |y|, |L| must hold \emph{one way or the other}.
-We can use disjoint sum types for that purpose
 %format OWOTO = "\F{OWOTO}"
+The information we shall need is exactly the totality
+of |L|: for any given |x| and |y|, |L| must hold \emph{One Way Or The Other},
+as captured by the disjoint sum type, |OWOTO L (x / y)|, defined as follows:
 %format le = "\C{le}"
 %format ge = "\C{ge}"
 \begin{code}
@@ -796,13 +798,14 @@ pattern _\\_\\_ s p t = p / s / t
 infixr 5 _\\_\\_ 
 \end{code}
 
-Immediately, we can define an \emph{interval} as an element within proven bounds.
+Immediately, we can define an \emph{interval} to be the type of
+an element proven to lie within given bounds.
 \begin{code}
 <$_$>II : forall {P}(L : REL P) -> REL <$ P $>D
 <$ L $>II = <^ L ^>P ^ <^ L ^>P
 pattern <$_$>ii p = ! \\ p \\ !
 \end{code}
-In habitual tidiness, a pattern synonym conceals the evidence.
+With habitual tidiness, a pattern synonym conceals the evidence.
 
 Let us then parametrize over some
 \[ |owoto : forall x y -> OWOTO L (x / y)| \]
@@ -826,7 +829,7 @@ module BinarySearchTreeWorks where
 
 %format insert3 = "\F{insert}"
 Reassuringly, the standard undergraduate error, arising from thinking
-about \emph{doing} not \emph{being}, is now ill typed.
+about \emph{doing} rather than \emph{being}, is now ill typed.
 \begin{code}
   insert3 :  [ <$ L $>II >> BST >> BST ]
   insert3 <$ y $>ii leaf            = node leaf y leaf
@@ -927,11 +930,12 @@ the evidence that neighbouring nodes are in order! Insertion remains easy.
   ... | ge  = node lt p (insert2 <$ y $>ii rt)
 \end{code}
 
-Rotation becomes very easy, with no proofs to rearrange!
-
+Rotation becomes very easy: the above code now typechecks, with
+no leaves in sight, so no proofs to rearrange!
 \begin{code}
   rotR : [ BST >> BST ]
-  rotR (node (node lt m mt) p rt) = node lt m (node mt p rt)
+  rotR (node (node lt m mt) p rt)
+     = node lt m (node mt p rt)
   rotR t = t
 \end{code}
 
@@ -1002,9 +1006,7 @@ infixr 5 _q*_
 
 The |qR| stands for `recursive substructure' and the |qP| stands for
 `parameter'---the type of elements stored in the container. Given meanings
-for these, we
-interpret a code in |JJ| as a set.
-two codes.
+for these, we interpret a code in |JJ| as a set.
 \begin{code}
 <!_!>JJ : JJ -> Set -> Set -> Set
 <! qR !>JJ      R P = R
@@ -1015,7 +1017,7 @@ two codes.
 \end{code}
 When we
 `tie the knot' in |MuJJ F P|, we replace interpret |F|'s |qP|s by some
-actual |P| and its |qR|s by |MuJJ F P|.
+actual |P| and its |qR|s by recursive uses of |MuJJ F P|.
 \begin{code}
 data MuJJ (F : JJ)(P : Set) : Set where
   la_ra : <! F !>JJ (MuJJ F P) P -> MuJJ F P
@@ -1050,20 +1052,20 @@ open Applicative
 
 %format <*> = "\F{\circledast}"
 %format _<*>_ = "\_\!" <*> "\!\_"
-%format pu = "\F{pu}"
+%format pur = "\F{pu}"
 \begin{code}
 traverse : forall {H F A B} -> Applicative H ->
   (A -> H B) -> MuJJ F A -> H (MuJJ F B)
 traverse {H}{F}{A}{B} AH h t = go qR t where
-  pu = pure AH ; _<*>_ = ap AH
+  pur = pure AH ; _<*>_ = ap AH
   go : forall G ->
     <! G !>JJ (MuJJ F A) A -> H (<! G !>JJ (MuJJ F B) B)
-  go qR        la t ra  = pu la_ra <*> go F t
+  go qR        la t ra  = pur la_ra <*> go F t
   go qP        a        = h a
-  go q1        it       = pu it
-  go (S q+ T)  (inl s)  = pu inl <*> go S s
-  go (S q+ T)  (inr t)  = pu inr <*> go T t
-  go (S q* T)  (s / t)  = (pu _/_ <*> go S s) <*> go T t
+  go q1        it       = pur it
+  go (S q+ T)  (inl s)  = pur inl <*> go S s
+  go (S q+ T)  (inr t)  = pur inr <*> go T t
+  go (S q* T)  (s / t)  = (pur _/_ <*> go S s) <*> go T t
 \end{code}
 
 We can specialise |traverse| to standard functorial |map|.
@@ -1081,7 +1083,8 @@ We can equally well specialise |traverse| to a monoidal |crush|.
 record Monoid (X : Set) : Set where
   field neutral : X ;  combine : X -> X -> X
   monApp : Applicative (\ _ -> X)
-  monApp = record {pure = \ _ -> neutral ; ap = combine}
+  monApp = record
+    {pure = \ _ -> neutral ; ap = combine}
   crush : forall {P F} -> (P -> X) -> MuJJ F P -> X
   crush = traverse {B = Zero} monApp
 open Monoid
@@ -1123,7 +1126,7 @@ We can require the presence of pivots between substructures by combining
 the parameter |qP| and pairing |q*| constructs of the PolyP universe into a
 single pivoting construct, |q^|, with two substructures and a pivot in between.
 We thus acquire the simple orderable universe, |SO|, a subset of
-|JJ| picked out as the image of a function, |<!_!>SO|. Now, |P| stands also for
+|JJ| picked out as the image of a function, |<!_!>SO|. Now, |qP| stands also for
 pivot!
 
 \begin{code}
@@ -1242,15 +1245,15 @@ availability of \emph{pattern synonyms}.
 
 
 %format treeOSO = "\F{tree}"
-%format $>T = "\F{\!\!\!^\Delta}"
-%format <$_$>T = "\_" $>T
+%format $>T = "\F{\!\!^\Delta}"
+%format <$_$>T = "\_\," $>T
 %format $>I = $>II
-%format <$_$>I = "\_" $>I
-%format $>ic = "\C{\!\!\!^\circ}"
-%format <$_$>ic = _ $>ii
+%format <$_$>I = "\_\," $>I
+%format $>ic = "\C{\!\!^\circ}"
+%format <$_$>ic = "\_\," $>ii
 With these two devices available, let us check that we can still turn
-any ordered data into an ordered tree, writing |<$ L $>T l u| for
-|MuOSO qTreeSO L l u|, and redefining intervals accordingly.
+any ordered data into an ordered tree, writing |<$ L $>T (l / u)| for
+|MuOSO qTreeSO L (l / u)|, and redefining intervals accordingly.
 \begin{code}
 <$_$>T <$_$>I : forall {P} -> REL P -> REL <$ P $>D
 
@@ -1304,15 +1307,15 @@ input container.
 %format makeTree = "\F{makeTree}"
 \begin{code}
   makeTree : forall {F} -> MuJJ F P -> <$ L $>T (bot / top)
-  makeTree = foldr (\ p -> insert2 la ! \\ p \\ ! ra) la inl ! ra
+  makeTree = foldr (\ p -> insert2 <$ p $>ic) leaf
 \end{code}
 
 
 \section{Digression: Merging Monoidally}
 
 
-%format $>+ = "\!\!\!\F{^{+}}"
-%format <$_$>+ = "\_" $>+
+%format $>+ = "\!\!\F{^{+}}"
+%format <$_$>+ = "\_\," $>+
 %format mergeSO = "\F{merge}"
 %format // = "\C{::}"
 %format _//_ = _ // _
@@ -1350,7 +1353,8 @@ module MergeSO where
 %endif
 The familiar definition of |mergeNO| typechecks but falls just
 outside the class of lexicographic recursions accepted by Agda's termination
-checker. I have dug out the concealed evidence which causes the trouble.
+checker. I have locally expanded pattern synonyms to dig out the concealed
+evidence which causes the trouble.
 \begin{spec}
   mergeNO : [ <$ L $>+ >> <$ L $>+ >> <$ L $>+ ]
   mergeNO  nil                                     ys         = ys
@@ -1376,7 +1380,7 @@ recursions are structural.
     ... | ge  = y // go ys
 
 \end{code}
-The helper function, |go| inserts |x| at its
+The helper function |go| inserts |x| at its
 rightful place in the second list, then resumes merging with |xs|.
 
 Merging equips ordered lists with monoidal structure.
@@ -1460,8 +1464,8 @@ nil        ++ ys = (BROWN ys)
 \end{code}
 
 The `cons' case goes without a hitch, but there is trouble at `nil'.
-We have |ys : MuOSO qListSO L p u| and we know |<$ L $>F l p|, but
-we need to return a |MuOSO qListSO L l u|.
+We have |ys : MuOSO qListSO L (p / u)| and we know |<$ L $>F (l / p)|, but
+we need to return a |MuOSO qListSO L (l / u)|.
 
 \[\xymatrix @@C=0in @@R=0in {
 \rct&*++[][F-]{|++|}&\blo{4}\blo{5}\blo{6}\blo{7}\blo{8}\blo{9}\rct\\
@@ -1501,7 +1505,7 @@ flattenOSO = flattenT o treeOSO
 \end{code}
 
 For a little extra speed we might fuse that composition, but it seems
-frivolous to do so as then benefit is outweighed by the quadratic penalty
+frivolous to do so as the benefit is outweighed by the quadratic penalty
 of left-nested concatenation. The standard remedy applies: we can introduce
 an accumulator \cite{Wadler87theconcatenate}, but our experience with |++|
 should alert us to the possibility that it may require some thought.
@@ -1605,8 +1609,8 @@ nil        +++ ys = ys
 \end{code}
 
 Careful use of instance arguments leaves all the manipulation of
-evidence to the machine. In the `nil' case, |ys| is silently
-instantiated with exactly the evidence exposed in the `nil' pattern
+evidence to the machine. In the |nil| case, |ys| is silently
+instantiated with exactly the evidence exposed in the |nil| pattern
 on the left.
 
 Let us now deploy the same technique for |fflatten|.
@@ -1681,15 +1685,15 @@ qIntervalIO  _ = q1 q^ q1
 \end{code}
 We also lift our existing type-forming abbreviations:
 %format $>i+ = $>+
-%format <$_$>i+ = "\_" $>i+
-%format $>iT = "\F{\!\!\!^\Delta}"
-%format <$_$>iT = "\_" $>iT
+%format <$_$>i+ = "\_\," $>i+
+%format $>iT = "\F{\!\!^\Delta}"
+%format <$_$>iT = "\_\," $>iT
 %format $>iI = $>I
-%format <$_$>iI = "\_" $>iI
-%format $>ic = "\C{\!\!\!^\circ}"
-%format <$_$>ic = "\_" $>ic
-%format $>io = "\C{\!\!\!^\circ}"
-%format <$_$>io = "\_" $>io
+%format <$_$>iI = "\_\," $>iI
+%format $>ic = "\C{\!\!^\circ}"
+%format <$_$>ic = "\_\," $>ic
+%format $>io = "\C{\!\!^\circ}"
+%format <$_$>io = "\_\," $>io
 \begin{code}
 <$_$>i+ <$_$>iT <$_$>iI : forall {P} -> REL P -> REL <$ P $>D
 <$ L $>i+  = MuIO qListIO      L it
@@ -1931,7 +1935,7 @@ admits iterative construction.
 \section{Deletion from 2-3 Trees}
 
 Might is right: the omission of \emph{deletion} from treatments of
-balanced search trees is always a little unfortunate. Deletion is a
+balanced search trees is always a little unfortunate~\cite{might:delete}. Deletion is a
 significant additional challenge because we can lose a key from the
 \emph{middle} of the tree, not just from the \emph{fringe} of nodes
 whose children are leaves. Insertion acts always to extend the fringe,
@@ -1968,7 +1972,7 @@ decidable equality on keys.
 \end{code}
 %endif
 \begin{code}
-    decEq : (x y : P) -> x == y + (x == y -> Zero)
+    eq? : (x y : P) -> x == y + (x == y -> Zero)
 \end{code}
 %if False
 \begin{code}
@@ -2124,14 +2128,14 @@ help is some notion of `propositional subtyping', allowing us to establish
 coercions between types which are guaranteed erasable at runtime because all
 they do is fix up indexing and the associated content-free proof objects.
 
-\paragraph{The completion of deleteion.}
+\paragraph{The completion of deletion.}
 Now that we can remove a key, we need only find the key to remove. I
 have chosen to delete the topmost occurrence of the given key, and to
 return the tree unscathed if the key does not occur at all.
 \begin{code}
     del23 : forall {h} -> [ <$ L $>iI >> <$ L $>23 h >> Del23 h ]
     del23 {ze}   _           no0                  = inr no0
-    del23 {su h} <$ y $>io   la lp \\ p \\ pu ra  with decEq y p
+    del23 {su h} <$ y $>io   la lp \\ p \\ pu ra  with eq? y p
     del23 {su h} <$ .p $>io  (no2 lp p pu)        | inl it
       = rd (delp (lp \\ p \\ pu))
     del23 {su h} <$ .p $>io  (no3 lp p pq q qu)   | inl it
@@ -2143,7 +2147,7 @@ return the tree unscathed if the key does not occur at all.
       = rd (t2d (lp \\ p \\ del23 <$ y $>io pu))
     del23 {su h} <$ y $>io   (no3 lp p pq q qu)   | inr _ | le
       = r3t (d2t (del23 <$ y $>io lp \\ p \\ pq) \\ q \\ qu)
-    del23 {su h} <$ y $>io   (no3 lp p pq q qu)   | inr _ | ge with decEq y q
+    del23 {su h} <$ y $>io   (no3 lp p pq q qu)   | inr _ | ge with eq? y q
     del23 {su h} <$ .q $>io  (no3 lp p pq q qu)   | inr _ | ge | inl it
       = t3r (lp \\ p \\ delp (pq \\ q \\ qu))
     ... | inr _ with owoto y q
@@ -2169,13 +2173,13 @@ We have seen \emph{intrinsic} dependently typed
 programming at work. Internalizing ordering and balancing invariants to
 our datatypes, we discovered not an explosion of proof obligations,
 but rather that unremarkable programs check at richer
-types because they \emph{and accountably} do the testing which
+types because they \emph{accountably} do the testing which
 justifies their choices.
 
 Of course, to make the programs fit neatly into the types, we must take
 care of how we craft the latter. I will not pretend for one moment that
 the good definition is the first to occur to me, and it is certainly the
-case that one is not automatically talented at desigining dependent types,
+case that one is not automatically talented at designing dependent types,
 even when one is an experienced programmer in Haskell or ML. There is a
 new skill to learn. Hopefully, by taking the time to explore the design
 space for ordering invariants, I have exposed some transferable lessons.
@@ -2217,7 +2221,7 @@ Intuitively, it seems likely that the |IO| universe corresponds closely
 to the ornaments on node-labelled binary trees which add only finitely
 many bits (because |IO| has |q+| rather than a general |Sg|). Of course,
 one node of a |MuIO| type corresponds to a region of nodes in a tree:
-perhaps ornaments, too, should be extend to allow the unrolling of
+perhaps ornaments, too, should be extended to allow the unrolling of
 recursive structure.
 
 Having developed a story about ordering invariants to the extent that
