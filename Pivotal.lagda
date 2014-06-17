@@ -1,4 +1,4 @@
-\documentclass[]{sigplanconf}                    % onecolumn (standard format)
+\documentclass{sigplanconf}                    % onecolumn (standard format)
 
 \usepackage[all]{xy}
 \usepackage{alltt}
@@ -86,6 +86,10 @@
            {Conor.McBride@@strath.ac.uk}
 
 \begin{document}
+\conferenceinfo{ICFP~'14}{September 1--6, 2014, Gothenburg, Sweden}
+\copyrightyear{2014}
+\copyrightdata{978-1-4503-2873-9/14/09}
+\doi{2628136.2628163} 
 \maketitle
 
 \begin{abstract}
@@ -718,7 +722,9 @@ Note that we speak only of the crucial bit of information.
 Moreover, we especially benefit from type-level computation in the step case:
 |OWOTO Le (su x / su y)| is the very same type as |OWOTO Le (x / y)|.
 
-Any ordering relation on elements lifts readily to bounds. Let us take the
+Any ordering relation on elements lifts readily to bounds: I have overloaded
+the notation for lifting in the typesetting of this paper, but sadly not in
+the Agda source code. Let us take the
 opportunity to add propositional wrapping, to help us hide ordering proofs.
 \begin{code}
 <$_$>F <^_^>P : forall {P} -> REL P -> REL <$ P $>D
@@ -1016,7 +1022,7 @@ for these, we interpret a code in |JJ| as a set.
 <! S q* T !>JJ  R P = <! S !>JJ R P * <! T !>JJ R P
 \end{code}
 When we
-`tie the knot' in |MuJJ F P|, we replace interpret |F|'s |qP|s by some
+`tie the knot' in |MuJJ F P|, we replace |F|'s |qP|s by some
 actual |P| and its |qR|s by recursive uses of |MuJJ F P|.
 \begin{code}
 data MuJJ (F : JJ)(P : Set) : Set where
@@ -1241,7 +1247,7 @@ bound the substructures appropriately.
 Meanwhile, the need in nodes to bound the left substructure's type
 with the pivot value disrupts the left-to-right spatial ordering of the
 data, but we can apply a little cosmetic treatment, thanks to the
-availability of \emph{pattern synonyms}.
+availability of pattern synonyms.
 
 
 %format treeOSO = "\F{tree}"
@@ -1914,6 +1920,12 @@ but it works just as on the left.
     | inr (rlt \\ r \\ rrt)  = inr (no2 lt p mt \\ q \\ no2 rlt r rrt)
 \end{code}
 
+Pleasingly, the task of constructing suitable return values in each of
+these cases is facilitated by Agda's type directed search gadget,
+\emph{Agsy}~\cite{DBLP:conf/types/LindbladB04}. There are but two
+valid outputs constructible from the pieces available: the original
+tree reconstituted, and the correct output.
+
 To complete the efficient sorting algorithm based on 2-3 trees, we can
 use a |Sg|-type to hide the height data, giving us a type which
 admits iterative construction.
@@ -2116,15 +2128,19 @@ remains the same, we shall deliver a 2-node.
       weak {su h} la pq \\ q \\ qu ra = la weak pq \\ q \\ qu ra
 \end{code}
 
-\paragraph{A remark on weakenings.}
-It may seem regrettable that we have to write |weak|, which is manifestly
-an obfuscated identity function, and programmers who do not wish the ordering
-guarantees are entitled not to pay and not to receive. If we took an extrinsic
-approach to managing these invariants, |weak| would still be present, but it
-would just be the proof of the proposition that you can lower a lower bound
-that you know for a tree. Consequently, the truly regrettable thing about
-|weak| is not that it is written but that it is \emph{executed}. What might
-help is some notion of `propositional subtyping', allowing us to establish
+\paragraph{A remark on weakenings.}  It may seem regrettable that we
+have to write |weak|, which is manifestly an obfuscated identity
+function, and programmers who do not wish the ordering guarantees are
+entitled not to pay and not to receive. If we took an extrinsic
+approach to managing these invariants, |weak| would still be present,
+but it would just be the proof of the proposition that you can lower a
+lower bound that you know for a tree. Consequently, the truly
+regrettable thing about |weak| is not that it is written but that it
+is \emph{executed}. The `colored' analysis of Bernardy and Moulin
+offers a suitable method to ensure that the weakening operation
+belongs to code which is erased at run
+time~\cite{DBLP:conf/icfp/BernardyM13}. An alternative might be
+a notion of `propositional subtyping', allowing us to establish
 coercions between types which are guaranteed erasable at runtime because all
 they do is fix up indexing and the associated content-free proof objects.
 
