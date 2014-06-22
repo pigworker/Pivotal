@@ -314,8 +314,6 @@ data Nat : Set where
 
 \begin{code}
 {-# BUILTIN NATURAL Nat #-}
-{-# BUILTIN ZERO ze #-}
-{-# BUILTIN SUC su #-}
 
 postulate BROWN : {X Y : Set} -> X -> Y
 postulate LIE : (P : Set){X : Set} -> (P => X) -> X
